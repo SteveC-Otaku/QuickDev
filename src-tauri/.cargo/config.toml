@@ -1,0 +1,10 @@
+# 构建时镜像覆盖（全局 ustc 不稳定）
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+retry = 5
+git-fetch-with-cli = true
