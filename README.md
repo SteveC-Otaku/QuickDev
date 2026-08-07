@@ -9,12 +9,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4.svg)](#)
 [![Tauri](https://img.shields.io/badge/Tauri-2-FFC131.svg)](https://tauri.app/)
+[![Release](https://img.shields.io/github/v/release/SteveC-Otaku/QuickDev)](https://github.com/SteveC-Otaku/QuickDev/releases/latest)
 
 </div>
 
 ---
 
 完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机。
+
+## 下载
+
+到 [Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest) 下载最新安装包（`QuickDev_x.x.x_x64-setup.exe`），双击安装即可。
+
+> Windows 若提示「未知发布者」，属未代码签名，选择仍要运行即可。
 
 ## 能干什么
 
@@ -26,7 +33,9 @@
 
 ## 截图
 
-> 可在此补充 `demo/` 截图。
+![即栈端口面板](demo/ports-panel.png)
+
+---
 
 ## 技术栈
 
