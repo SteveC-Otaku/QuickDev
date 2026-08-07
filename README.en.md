@@ -9,12 +9,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4.svg)](#)
 [![Tauri](https://img.shields.io/badge/Tauri-2-FFC131.svg)](https://tauri.app/)
+[![Release](https://img.shields.io/github/v/release/SteveC-Otaku/QuickDev)](https://github.com/SteveC-Otaku/QuickDev/releases/latest)
 
 </div>
 
 ---
 
 Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine.
+
+## Download
+
+Get the latest installer from [Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest) (`QuickDev_x.x.x_x64-setup.exe`).
+
+> Windows may warn about an unknown publisher (unsigned build). Choose “Run anyway”.
 
 ## Features
 
@@ -26,7 +33,9 @@ Free and open source — **no project limit**. No accounts, no cloud sync. Every
 
 ## Screenshots
 
-> Add screenshots under `demo/` when ready.
+![Quick Dev ports panel](demo/ports-panel.png)
+
+---
 
 ## Stack
 
