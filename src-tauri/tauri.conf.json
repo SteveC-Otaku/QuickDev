@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "即栈 Quick Dev",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "identifier": "com.quickdev.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -17,7 +17,9 @@
         "height": 640,
         "minWidth": 720,
         "minHeight": 480,
-        "resizable": true
+        "resizable": true,
+        "visible": true,
+        "focus": true
       }
     ],
     "security": {
@@ -25,8 +27,12 @@
     }
   },
   "bundle": {
+    "publisher": "即栈",
+    "shortDescription": "本地开发项目、日志与端口管理",
+    "longDescription": "即栈 Quick Dev：一键启停本地项目，联合运行前后端，查看服务日志与端口占用。",
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,10 +41,29 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "customLanguageFiles": { "SimpChinese": "installer/SimpChinese.nsh" },
+        "displayLanguageSelector": false,
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "uninstallerHeaderImage": "installer/header.bmp"
+      },
       "signCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ..\\scripts\\sign-windows.ps1 %1",
       "wix": {
         "language": "zh-CN"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDNDQwNUIxNjZEOTZDRUYKUldUdmJObG1zUVZFVExNc0szOUxMOEhUdko1bWdYUmpmVU1RZktHUXREM3dKaHo5Y3dXRW8wMEEK",
+      "endpoints": [
+        "https://github.com/SteveC-Otaku/QuickDev/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
     }
   }
 }

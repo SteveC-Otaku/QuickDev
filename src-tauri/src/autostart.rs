@@ -17,7 +17,8 @@ pub fn apply(app: &AppHandle, enabled: bool) -> Result<(), String> {
             Ok(()) => Ok(()),
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("找不到") || msg.contains("not found") || msg.contains("No such") {
+                if msg.contains("找不到") || msg.contains("not found") || msg.contains("No such")
+                {
                     Ok(())
                 } else {
                     Err(msg)

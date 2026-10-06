@@ -27,3 +27,6 @@ vite.config.ts.timestamp-*
 # Tauri / Rust (also ignored under src-tauri/)
 src-tauri/target/
 src-tauri/gen/schemas
+
+# packaged site + installers (upload from here, do not commit binaries)
+release/dist/

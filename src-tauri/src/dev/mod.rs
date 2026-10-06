@@ -1,8 +1,11 @@
 use crate::config::detect::resolve_project_root;
 use crate::config::store::Project;
 use crate::config::store::{get_projects, get_settings, save_project};
-use crate::port::{list_listening_ports, PortEntry};
+mod group;
+use crate::port::{find_listening_port, PortEntry};
+use crate::process::job::ProcessJob;
 use crate::process::kill_process_tree;
+pub use group::DevStatusEntry;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
@@ -11,11 +14,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-use tauri::{AppHandle, Emitter, Runtime};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 const LOG_CAP: usize = 2000;
-const STARTING_TIMEOUT_MS: u64 = 4000;
+// Process-only readiness reports a live process, not business readiness.
+// A short stability window detects immediate failures without adding four seconds.
+const STARTING_TIMEOUT_MS: u64 = 500;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DevPhase {
@@ -24,26 +29,27 @@ enum DevPhase {
 }
 
 #[derive(Clone)]
-pub struct DevManager(Arc<Mutex<DevState>>);
+pub struct DevManager(
+    Arc<Mutex<DevState>>,
+    Arc<Mutex<()>>,
+    Arc<Mutex<group::GroupState>>,
+);
 
 struct DevState {
     sessions: HashMap<String, DevSession>,
     crashed_ids: HashSet<String>,
-    error_active: bool,
+    archived_logs: HashMap<String, VecDeque<String>>,
+    stopping: HashSet<String>,
 }
 
 struct DevSession {
     pid: u32,
     logs: VecDeque<String>,
     phase: DevPhase,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DevStatusEntry {
-    pub id: String,
-    pub status: String,
-    pub pid: Option<u32>,
+    job: Arc<ProcessJob>,
+    output: Arc<crate::process::drain::RetainedOutput>,
+    generation: u64,
+    observed_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,72 +61,80 @@ pub struct StartDevResult {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DevLogEvent {
     id: String,
+    service_id: String,
+    session_id: u64,
+    timestamp: u64,
     line: String,
-}
-
-#[derive(Clone, Serialize)]
-struct DevStatusEvent {
-    id: String,
-    status: String,
 }
 
 impl DevManager {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(DevState {
-            sessions: HashMap::new(),
-            crashed_ids: HashSet::new(),
-            error_active: false,
-        })))
+        Self(
+            Arc::new(Mutex::new(DevState {
+                sessions: HashMap::new(),
+                crashed_ids: HashSet::new(),
+                archived_logs: HashMap::new(),
+                stopping: HashSet::new(),
+            })),
+            Arc::new(Mutex::new(())),
+            Arc::new(Mutex::new(group::GroupState::default())),
+        )
     }
 
     pub fn owned_pids(&self) -> HashSet<u32> {
         let state = self.0.lock().unwrap();
-        state.sessions.values().map(|s| s.pid).collect()
+        state
+            .sessions
+            .values()
+            .filter(|s| s.job.contains_pid(s.pid))
+            .map(|s| s.pid)
+            .collect()
     }
 
-    pub fn statuses(&self) -> Vec<DevStatusEntry> {
-        let state = self.0.lock().unwrap();
-        let mut out: Vec<DevStatusEntry> = state
+    pub fn service_owning_pid(&self, pid: u32) -> Option<(String, String)> {
+        self.0
+            .lock()
+            .unwrap()
             .sessions
             .iter()
-            .map(|(id, s)| DevStatusEntry {
-                id: id.clone(),
-                status: match s.phase {
-                    DevPhase::Starting => "starting".into(),
-                    DevPhase::Running => "running".into(),
-                },
-                pid: Some(s.pid),
-            })
-            .collect();
-        for id in &state.crashed_ids {
-            if !state.sessions.contains_key(id) {
-                out.push(DevStatusEntry {
-                    id: id.clone(),
-                    status: "crashed".into(),
-                    pid: None,
-                });
-            }
-        }
-        out
+            .find(|(_, s)| s.job.contains_pid(pid))
+            .map(|(key, _)| group::split_key(key))
     }
-
+    #[cfg(test)]
     pub fn has_error(&self) -> bool {
-        self.0.lock().unwrap().error_active
+        self.statuses()
+            .iter()
+            .any(|p| p.services.iter().any(|s| s.message.is_some()))
     }
 
-    pub fn logs(&self, id: &str) -> Vec<String> {
+    fn raw_logs(&self, id: &str) -> Vec<String> {
         let state = self.0.lock().unwrap();
         state
             .sessions
             .get(id)
             .map(|s| s.logs.iter().cloned().collect())
+            .or_else(|| {
+                state
+                    .archived_logs
+                    .get(id)
+                    .map(|logs| logs.iter().cloned().collect())
+            })
             .unwrap_or_default()
     }
 
-    pub fn start<R: Runtime>(&self, app: &AppHandle<R>, project: &Project) -> StartDevResult {
+    fn start_one<R: Runtime>(&self, app: &AppHandle<R>, project: &Project) -> StartDevResult {
+        let _launch_guard = self.1.lock().unwrap();
         let id = project.id.clone();
+        if self.is_stopping_all() {
+            return StartDevResult {
+                ok: false,
+                message: Some("正在停止全部项目，请稍后启动".into()),
+                conflict: None,
+            };
+        }
 
         {
             let state = self.0.lock().unwrap();
@@ -133,39 +147,39 @@ impl DevManager {
             }
         }
 
+        // Only the explicit kill_and_restart action may terminate another process.
         if let Some(port) = project.port {
-            if let Some(conflict) = check_port_conflict(port, &self.owned_pids()) {
-                return StartDevResult {
-                    ok: false,
-                    message: Some(format!("端口 :{port} 已被占用")),
-                    conflict: Some(conflict),
-                };
+            match check_port_conflict(port, &self.owned_pids()) {
+                Ok(Some(conflict)) => return port_occupied(port, conflict),
+                Ok(None) => {}
+                Err(e) => {
+                    return StartDevResult {
+                        ok: false,
+                        message: Some(e),
+                        conflict: None,
+                    }
+                }
             }
         }
 
-        let settings = get_settings().unwrap_or_default();
-        let cwd = resolve_project_root(&project.cwd).unwrap_or_else(|_| PathBuf::from(&project.cwd));
+        let settings = self.runtime_settings();
+        let cwd = match resolve_project_root(&project.cwd) {
+            Ok(cwd) => cwd,
+            Err(e) => {
+                return StartDevResult {
+                    ok: false,
+                    message: Some(e),
+                    conflict: None,
+                }
+            }
+        };
         let cwd_str = cwd.to_string_lossy().into_owned();
-        let (shell_exe, shell_args) = build_shell_command(&settings.shell, &cwd_str, &project.command);
+        let (shell_exe, shell_args) =
+            build_shell_command(&settings.shell, &cwd_str, &project.command);
 
-        let _ = app.emit(
-            "dev-status",
-            DevStatusEvent {
-                id: id.clone(),
-                status: "starting".into(),
-            },
-        );
-
-        let child = match spawn_dev_process(&shell_exe, &shell_args) {
+        let (child, job) = match spawn_managed_process(&shell_exe, &shell_args, &cwd) {
             Ok(c) => c,
             Err(e) => {
-                let _ = app.emit(
-                    "dev-status",
-                    DevStatusEvent {
-                        id: id.clone(),
-                        status: "stopped".into(),
-                    },
-                );
                 return StartDevResult {
                     ok: false,
                     message: Some(e.to_string()),
@@ -174,22 +188,46 @@ impl DevManager {
             }
         };
 
+        let output = match crate::process::drain::RetainedOutput::capture(&child) {
+            Ok(output) => Arc::new(output),
+            Err(error) => {
+                let _ = job.terminate();
+                return StartDevResult {
+                    ok: false,
+                    message: Some(format!("无法保留日志管道：{error}")),
+                    conflict: None,
+                };
+            }
+        };
         let pid = child.id();
+        let generation = group::next_id();
         {
             let mut state = self.0.lock().unwrap();
-            state.error_active = false;
             state.crashed_ids.remove(&id);
+            state.archived_logs.remove(&id);
             state.sessions.insert(
                 id.clone(),
                 DevSession {
                     pid,
                     logs: VecDeque::new(),
                     phase: DevPhase::Starting,
+                    job,
+                    output,
+                    generation,
+                    observed_port: None,
                 },
             );
         }
 
-        spawn_log_reader(app.clone(), self.clone(), id.clone(), child, project.clone());
+        spawn_log_reader(
+            app.clone(),
+            self.clone(),
+            id.clone(),
+            child,
+            project.clone(),
+            generation,
+        );
+        self.notify_status(app, &group::split_key(&id).0);
         crate::tray::refresh(app);
 
         StartDevResult {
@@ -199,41 +237,110 @@ impl DevManager {
         }
     }
 
-    pub fn stop<R: Runtime>(&self, app: &AppHandle<R>, id: &str) -> Result<(), String> {
-        let pid = {
+    fn stop_one<R: Runtime>(&self, app: &AppHandle<R>, id: &str) -> Result<(), String> {
+        let launch_guard = self.1.lock().unwrap();
+        let target = {
             let mut state = self.0.lock().unwrap();
             state.crashed_ids.remove(id);
-            state.sessions.remove(id).map(|s| s.pid)
+            let target = state
+                .sessions
+                .get(id)
+                .map(|s| (s.pid, s.generation, s.job.clone()));
+            if target.is_some() {
+                state.stopping.insert(id.to_string());
+            }
+            target
         };
-        if let Some(pid) = pid {
-            kill_process_tree(pid)?;
-            let _ = app.emit(
-                "dev-status",
-                DevStatusEvent {
-                    id: id.to_string(),
-                    status: "stopped".into(),
-                },
-            );
+        drop(launch_guard);
+        if let Some((pid, generation, job)) = target {
+            self.notify_status(app, &group::split_key(id).0);
+            if let Err(e) = stop_job(&job) {
+                let mut state = self.0.lock().unwrap();
+                state.stopping.remove(id);
+                if let Some(session) = state
+                    .sessions
+                    .get(id)
+                    .filter(|s| s.pid == pid && s.generation == generation)
+                {
+                    let _ = session;
+                    drop(state);
+                    self.notify_status(app, &group::split_key(id).0);
+                    return Err(e);
+                }
+                return Ok(());
+            }
+            cleanup_session(self, app, id, pid, generation, "stopped");
+        } else {
             crate::tray::refresh(app);
         }
         Ok(())
     }
 
-    pub fn stop_all<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
-        let ids: Vec<String> = {
-            let state = self.0.lock().unwrap();
-            state.sessions.keys().cloned().collect()
-        };
-        for id in ids {
-            self.stop(app, &id)?;
-        }
+    pub fn kill_and_restart<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        project_id: &str,
+        pid: u32,
+        plan_id: Option<&str>,
+    ) -> StartDevResult {
+        let project = match get_projects()
+            .ok()
+            .and_then(|ps| ps.into_iter().find(|p| p.id == project_id))
         {
-            let mut state = self.0.lock().unwrap();
-            state.error_active = false;
+            Some(p) => p,
+            None => {
+                return StartDevResult {
+                    ok: false,
+                    message: Some("项目不存在".into()),
+                    conflict: None,
+                };
+            }
+        };
+
+        if plan_id.is_some_and(|id| !project.launch_plans.iter().any(|p| p.id==id)) {
+            return StartDevResult{ok:false,message:Some("启动方案不存在，未结束占用进程".into()),conflict:None};
         }
-        Ok(())
+        let conflict = project
+            .effective_services()
+            .iter()
+            .filter_map(|s| s.port)
+            .find_map(|port| {
+                check_port_conflict(port, &self.owned_pids())
+                    .ok()
+                    .flatten()
+                    .filter(|owner| owner.pid == pid)
+                    .map(|owner| (port, owner))
+            });
+        let Some((port, _)) = conflict else {
+            return StartDevResult {
+                ok: false,
+                message: Some("端口占用已变化，请刷新后重试".into()),
+                conflict: None,
+            };
+        };
+        let result = if let Some((owner, service)) = self.service_owning_pid(pid) {
+            self.stop_service(app, &owner, &service)
+        } else {
+            kill_process_tree(pid)
+        };
+        if let Err(message) = result {
+            return StartDevResult {
+                ok: false,
+                message: Some(message),
+                conflict: None,
+            };
+        }
+        for _ in 0..12 {
+            if matches!(check_port_conflict(port, &self.owned_pids()), Ok(None)) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+
+        if let Some(plan) = plan_id { self.start_plan(app,&project,plan) } else { self.start(app, &project) }
     }
 
+    #[cfg(test)]
     pub fn running_count(&self) -> usize {
         self.0.lock().unwrap().sessions.len()
     }
@@ -249,11 +356,12 @@ fn build_shell_command(shell: &str, cwd: &str, command: &str) -> (String, Vec<St
     let lower = shell_exe.to_lowercase();
 
     if lower.ends_with("cmd.exe") || lower == "cmd" {
-        let script = format!("cd /d \"{}\" && {}", cwd.replace('"', ""), command);
-        (shell_exe, vec!["/C".into(), script])
+        // current_dir already sets the execution directory. Avoid a second cd
+        // and preserve cmd's own quoting for paths, commands and batch files.
+        (shell_exe, vec!["/D".into(), "/S".into(), "/C".into(), command.into()])
     } else {
         let script = format!(
-            "Set-Location -LiteralPath '{}'; {}",
+            "$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath '{}'; {}",
             escape_ps(cwd),
             command
         );
@@ -262,6 +370,8 @@ fn build_shell_command(shell: &str, cwd: &str, command: &str) -> (String, Vec<St
             vec![
                 "-NoProfile".into(),
                 "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
                 "-WindowStyle".into(),
                 "Hidden".into(),
                 "-Command".into(),
@@ -271,33 +381,91 @@ fn build_shell_command(shell: &str, cwd: &str, command: &str) -> (String, Vec<St
     }
 }
 
-fn spawn_dev_process(
+fn spawn_managed_process(
     shell_exe: &str,
     shell_args: &[String],
-) -> Result<std::process::Child, std::io::Error> {
-    let mut cmd = Command::new(shell_exe);
-    cmd.args(shell_args)
+    cwd: &std::path::Path,
+) -> Result<(std::process::Child, Arc<ProcessJob>), std::io::Error> {
+    let job = Arc::new(ProcessJob::new()?);
+    let mut command = Command::new(shell_exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let lower = shell_exe.to_ascii_lowercase();
+        if (lower == "cmd" || lower.ends_with("cmd.exe")) && shell_args.len() == 4 && shell_args[1] == "/S" {
+            command.args(&shell_args[..3]).raw_arg(format!("\"{}\"", shell_args[3]));
+        } else {
+            command.args(shell_args);
+        }
+    }
+    #[cfg(not(windows))]
+    command.args(shell_args);
+    command
+        .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        // Attach to the Job before any project code may spawn descendants.
+        command.creation_flags(0x0800_0000 | 0x0000_0004);
     }
-    cmd.spawn()
+    let mut child = command.spawn()?;
+    if let Err(e) = job.attach_and_resume(&child) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(e);
+    }
+    Ok((child, job))
 }
 
-fn check_port_conflict(port: u16, owned: &HashSet<u32>) -> Option<PortEntry> {
-    let entries = list_listening_ports(&[], owned, &[]).ok()?;
-    entries
-        .into_iter()
-        .find(|e| e.port == port && e.owned != Some(true))
+fn stop_job(job: &ProcessJob) -> Result<(), String> {
+    job.terminate().map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if job.active_count().map_err(|e| e.to_string())? == 0 {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("进程仍在结束中，请稍后重试停止".into());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn port_occupied(port: u16, conflict: PortEntry) -> StartDevResult {
+    StartDevResult {
+        ok: false,
+        message: Some(format!("端口 :{port} 已被占用")),
+        conflict: Some(conflict),
+    }
+}
+
+fn check_port_conflict(port: u16, owned: &HashSet<u32>) -> Result<Option<PortEntry>, String> {
+    find_listening_port(port, owned)
 }
 
 fn escape_ps(s: &str) -> String {
     s.replace('\'', "''")
+}
+
+fn read_output(reader: impl std::io::Read, mut on_line: impl FnMut(&str)) {
+    let mut reader = BufReader::new(reader);
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                while bytes.last().is_some_and(|v| matches!(*v, b'\n' | b'\r')) {
+                    bytes.pop();
+                }
+                // Invalid legacy bytes must not stop draining a live service's pipe.
+                on_line(&String::from_utf8_lossy(&bytes));
+            }
+        }
+    }
 }
 
 fn spawn_log_reader<R: Runtime>(
@@ -306,9 +474,11 @@ fn spawn_log_reader<R: Runtime>(
     id: String,
     mut child: std::process::Child,
     project: Project,
+    generation: u64,
 ) {
     thread::spawn(move || {
-        let write_logs = get_settings().map(|s| s.write_logs).unwrap_or(false);
+        let session_pid = child.id();
+        let write_logs = manager.runtime_settings().write_logs;
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -320,17 +490,19 @@ fn spawn_log_reader<R: Runtime>(
 
         let out_handle = stdout.map(|stdout| {
             thread::spawn(move || {
-                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                read_output(stdout, |line| {
                     handle_log_line(
                         &app_out,
                         &mgr_out,
                         &id_out,
+                        session_pid,
+                        generation,
                         &proj_out,
-                        &line,
+                        line,
                         false,
                         write_logs,
                     );
-                }
+                });
             })
         });
 
@@ -341,27 +513,21 @@ fn spawn_log_reader<R: Runtime>(
 
         let err_handle = stderr.map(|stderr| {
             thread::spawn(move || {
-                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                read_output(stderr, |line| {
                     let tagged = format!("[stderr] {line}");
                     handle_log_line(
                         &app_err,
                         &mgr_err,
                         &id_err,
+                        session_pid,
+                        generation,
                         &proj_err,
                         &tagged,
                         true,
                         write_logs,
                     );
-                }
+                });
             })
-        });
-
-        let app_timeout = app.clone();
-        let mgr_timeout = manager.clone();
-        let id_timeout = id.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(STARTING_TIMEOUT_MS));
-            promote_to_running(&app_timeout, &mgr_timeout, &id_timeout);
         });
 
         if let Some(h) = out_handle {
@@ -372,10 +538,33 @@ fn spawn_log_reader<R: Runtime>(
         }
 
         let exit_code = child.wait().ok().and_then(|s| s.code());
-        let still_tracking = manager.0.lock().unwrap().sessions.contains_key(&id);
+        let job = manager
+            .0
+            .lock()
+            .unwrap()
+            .sessions
+            .get(&id)
+            .filter(|s| s.generation == generation)
+            .map(|s| s.job.clone());
+        if let Some(job) = job {
+            while job.active_count().unwrap_or(0) > 0 {
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+        let still_tracking = manager
+            .0
+            .lock()
+            .unwrap()
+            .sessions
+            .get(&id)
+            .is_some_and(|s| s.generation == generation);
         if still_tracking {
-            let status = if exit_code == Some(0) { "stopped" } else { "crashed" };
-            cleanup_session(&manager, &app, &id, status);
+            let status = if exit_code == Some(0) {
+                "stopped"
+            } else {
+                "crashed"
+            };
+            cleanup_session(&manager, &app, &id, session_pid, generation, status);
         }
     });
 }
@@ -384,30 +573,88 @@ fn handle_log_line<R: Runtime>(
     app: &AppHandle<R>,
     manager: &DevManager,
     id: &str,
+    pid: u32,
+    generation: u64,
     project: &Project,
     line: &str,
     is_stderr: bool,
     write_logs: bool,
 ) {
-    push_log(manager, id, line, write_logs);
-    if !is_stderr {
-        maybe_update_from_log(app, project, line);
+    if !manager
+        .0
+        .lock()
+        .unwrap()
+        .sessions
+        .get(id)
+        .is_some_and(|s| s.pid == pid && s.generation == generation)
+    {
+        return;
     }
-    promote_to_running(app, manager, id);
+    let stamped = format!("[{}] {line}", group::now_ms());
+    if !push_log(manager, id, generation, &stamped, write_logs) {
+        return;
+    }
+    let _ = is_stderr;
+    // Logs can reveal the actual port when a dev server chooses a fallback.
+    // A printed URL alone is not readiness evidence: its owner must join this Job.
+    if let Some(port) = parse_local_url(line).and_then(|url| port_from_url(&url)) {
+        let job = manager
+            .0
+            .lock()
+            .unwrap()
+            .sessions
+            .get(id)
+            .filter(|s| s.pid == pid)
+            .map(|s| s.job.clone());
+        if let Some(job) = job {
+            if find_listening_port(port, &HashSet::new())
+                .ok()
+                .flatten()
+                .is_some_and(|owner| job.contains_pid(owner.pid))
+            {
+                if let Some(session) = manager
+                    .0
+                    .lock()
+                    .unwrap()
+                    .sessions
+                    .get_mut(id)
+                    .filter(|s| s.generation == generation)
+                {
+                    session.observed_port = Some(port);
+                }
+                maybe_update_from_log(app, project, line);
+            }
+        }
+    }
     let _ = app.emit(
         "dev-log",
         DevLogEvent {
-            id: id.to_string(),
-            line: line.to_string(),
+            id: group::split_key(id).0,
+            service_id: group::split_key(id).1,
+            session_id: generation,
+            timestamp: group::now_ms(),
+            line: stamped,
         },
     );
 }
 
-fn promote_to_running<R: Runtime>(app: &AppHandle<R>, manager: &DevManager, id: &str) {
+fn promote_to_running<R: Runtime>(
+    app: &AppHandle<R>,
+    manager: &DevManager,
+    id: &str,
+    pid: u32,
+    generation: u64,
+) {
     let should_emit = {
         let mut state = manager.0.lock().unwrap();
+        if state.stopping.contains(id) {
+            return;
+        }
         if let Some(session) = state.sessions.get_mut(id) {
-            if session.phase == DevPhase::Starting {
+            if session.pid == pid
+                && session.generation == generation
+                && session.phase == DevPhase::Starting
+            {
                 session.phase = DevPhase::Running;
                 true
             } else {
@@ -418,29 +665,30 @@ fn promote_to_running<R: Runtime>(app: &AppHandle<R>, manager: &DevManager, id: 
         }
     };
     if should_emit {
-        let _ = app.emit(
-            "dev-status",
-            DevStatusEvent {
-                id: id.to_string(),
-                status: "running".into(),
-            },
-        );
+        manager.notify_status(app, &group::split_key(id).0);
         crate::tray::refresh(app);
     }
 }
 
-fn push_log(manager: &DevManager, id: &str, line: &str, write_logs: bool) {
+fn push_log(manager: &DevManager, id: &str, generation: u64, line: &str, write_logs: bool) -> bool {
     let mut state = manager.0.lock().unwrap();
-    if let Some(session) = state.sessions.get_mut(id) {
+    if let Some(session) = state
+        .sessions
+        .get_mut(id)
+        .filter(|s| s.generation == generation)
+    {
         session.logs.push_back(line.to_string());
         while session.logs.len() > LOG_CAP {
             session.logs.pop_front();
         }
+    } else {
+        return false;
     }
     drop(state);
     if write_logs {
         let _ = append_log_file(id, line);
     }
+    true
 }
 
 fn logs_dir() -> Result<PathBuf, String> {
@@ -467,18 +715,24 @@ fn maybe_update_from_log<R: Runtime>(app: &AppHandle<R>, project: &Project, line
     let Ok(mut projects) = get_projects() else {
         return;
     };
-    let Some(p) = projects.iter_mut().find(|p| p.id == project.id) else {
+    let (parent_id, service_id) = group::split_key(&project.id);
+    let Some(p) = projects.iter_mut().find(|p| p.id == parent_id) else {
         return;
     };
-    if p.open_url.as_deref() == Some(url.as_str()) {
+    let Some(service) = p.services.iter_mut().find(|s| s.id == service_id) else {
+        return;
+    };
+    if service.open_url.as_deref() == Some(url.as_str()) {
         return;
     }
-    p.open_url = Some(url.clone());
+    service.open_url = Some(url.clone());
     if let Some(port) = port_from_url(&url) {
-        p.port = Some(port);
+        service.port = Some(port);
     }
     let updated = p.clone();
-    if save_project(updated).is_ok() {
+    if save_project(updated.clone()).is_ok() {
+        let manager = app.state::<DevManager>();
+        manager.update_project_cache(updated);
         let _ = app.emit("trigger-refresh", ());
     }
 }
@@ -509,21 +763,140 @@ fn port_from_url(url: &str) -> Option<u16> {
     host_port.rsplit(':').next()?.parse().ok()
 }
 
-fn cleanup_session<R: Runtime>(manager: &DevManager, app: &AppHandle<R>, id: &str, status: &str) {
+fn cleanup_session<R: Runtime>(
+    manager: &DevManager,
+    app: &AppHandle<R>,
+    id: &str,
+    pid: u32,
+    generation: u64,
+    status: &str,
+) {
     {
         let mut state = manager.0.lock().unwrap();
-        state.sessions.remove(id);
-        if status == "crashed" {
+        if !state
+            .sessions
+            .get(id)
+            .is_some_and(|s| s.pid == pid && s.generation == generation)
+        {
+            return;
+        }
+        if let Some(session) = state.sessions.remove(id) {
+            state.archived_logs.insert(id.to_string(), session.logs);
+        }
+        let stopping = state.stopping.remove(id);
+        if status == "crashed" && !stopping {
             state.crashed_ids.insert(id.to_string());
-            state.error_active = true;
         }
     }
-    let _ = app.emit(
-        "dev-status",
-        DevStatusEvent {
-            id: id.to_string(),
-            status: status.into(),
-        },
-    );
+    manager.notify_status(app, &group::split_key(id).0);
     crate::tray::refresh(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn native_job_stops_owned_shell_and_descendant_without_taskkill() {
+        struct Guard {
+            child: std::process::Child,
+            job: Arc<ProcessJob>,
+        }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                let _ = self.job.terminate();
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
+        }
+        for (shell, args) in [
+            (
+                "cmd.exe",
+                vec![
+                    "/D".into(),
+                    "/C".into(),
+                    "ping -n 31 127.0.0.1 > nul".into(),
+                ],
+            ),
+            (
+                "powershell.exe",
+                vec![
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-WindowStyle".into(),
+                    "Hidden".into(),
+                    "-Command".into(),
+                    "ping.exe -n 31 127.0.0.1 | Out-Null".into(),
+                ],
+            ),
+        ] {
+            let (child, job) = spawn_managed_process(shell, &args, &std::env::temp_dir()).unwrap();
+            let mut owned = Guard { child, job };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while owned.job.active_count().unwrap() < 2 && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                owned.job.active_count().unwrap() >= 2,
+                "shell and child must both join Job"
+            );
+            assert!(owned.job.contains_pid(owned.child.id()));
+            assert!(!owned.job.contains_pid(std::process::id()));
+            let external = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let owner = find_listening_port(external.local_addr().unwrap().port(), &HashSet::new())
+                .unwrap()
+                .unwrap();
+            assert!(
+                !owned.job.contains_pid(owner.pid),
+                "external listener must not make a managed project ready"
+            );
+            let started = Instant::now();
+            stop_job(&owned.job).unwrap();
+            eprintln!("{shell} owned shell + child stop: {:?}", started.elapsed());
+            assert_eq!(owned.job.active_count().unwrap(), 0);
+            owned.child.wait().unwrap();
+        }
+    }
+
+    #[test]
+    fn detects_unhighlighted_occupied_port_without_killing_it() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(check_port_conflict(port, &HashSet::new())
+            .unwrap()
+            .is_some());
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok());
+    }
+
+    #[test]
+    fn legacy_log_bytes_do_not_close_the_reader_or_drop_following_lines() {
+        let input = b"\xff legacy\r\nnext line\n";
+        let mut lines = Vec::new();
+        read_output(&input[..], |line| lines.push(line.to_owned()));
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("legacy"));
+        assert_eq!(lines[1], "next line");
+    }
+
+    #[test]
+    fn shell_changes_directory_with_fail_fast_and_literal_quoting() {
+        let (_, args) = build_shell_command("powershell", "D:\u{5c}O'Brien", "npm run dev");
+        let script = args.last().unwrap();
+        assert!(script.contains("$ErrorActionPreference = 'Stop'"));
+        assert!(script.contains("O''Brien"));
+        assert!(script.contains("-LiteralPath"));
+    }
+
+    #[test]
+    fn logs_remain_available_after_session_exit() {
+        let manager = DevManager::new();
+        manager
+            .0
+            .lock()
+            .unwrap()
+            .archived_logs
+            .insert("test".into(), VecDeque::from(["last error".into()]));
+        assert_eq!(manager.raw_logs("test"), vec!["last error"]);
+    }
 }

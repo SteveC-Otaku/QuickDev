@@ -1,296 +1,54 @@
 <script lang="ts">
+  import ActionIcon from "$lib/components/ActionIcon.svelte";
   import { onMount } from "svelte";
-  import { listen } from "@tauri-apps/api/event";
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import ProjectFormModal from "$lib/components/ProjectFormModal.svelte";
   import PortsPanel from "$lib/components/PortsPanel.svelte";
   import ProjectsPanel from "$lib/components/ProjectsPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
-  import {
-    exportConfig,
-    importConfig,
-    getDevLogs,
-    killProcess,
-    listDevStatus,
-    listPorts,
-    listProjects,
-    loadSettings,
-    removeProject,
-    startDev,
-    stopAllDevs,
-    stopDev,
-    updateSettings,
-    upsertProject,
-  } from "$lib/ipc";
-  import type { DevStatus, LogLine, PortEntry, Project, Settings, TabId } from "$lib/types";
-
-  let activeTab = $state<TabId>("ports");
-  let settings = $state<Settings>({
-    highlightPorts: [3000, 5173, 8080, 4173, 2283],
-    autoRefresh: true,
-    minimizeToTray: true,
-    autoStart: false,
-    hotkey: "Ctrl+Shift+D",
-    writeLogs: false,
-    groups: ["工作", "个人"],
-    shell: "powershell",
-  });
-  let ports = $state<PortEntry[]>([]);
-  let projects = $state<Project[]>([]);
-  let logs = $state<LogLine[]>([]);
-  let selectedProjectId = $state<string | undefined>();
-  let conflict = $state<{ port: number; pid: number; command: string } | null>(null);
-  let portsLoading = $state(false);
-  let lastRefresh = $state("—");
-  let runningCount = $state(0);
-  let hasError = $state(false);
-  let formOpen = $state(false);
-  let editingProject = $state<Project | null>(null);
-  let rawProjectCount = $state(0);
-
-  const tabs = $derived.by(() => {
-    const items: { id: TabId; label: string; badge?: string }[] = [
-      { id: "ports", label: "端口" },
-      { id: "projects", label: "项目" },
-    ];
-    const conflicts = projects.filter((p) => p.status === "conflict" || p.status === "crashed").length;
-    if (conflicts > 0) items[1].badge = `${conflicts} 异常`;
-    items.push({ id: "settings", label: "设置" });
-    return items;
-  });
-
-  function formatRefreshTime() {
-    const now = new Date();
-    lastRefresh = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-  }
-
-  function classifyLog(text: string): LogLine["level"] {
-    const lower = text.toLowerCase();
-    if (lower.includes("error") || lower.includes("failed")) return "error";
-    if (lower.includes("warn")) return "warn";
-    if (text.includes("Local:") || text.includes("ready") || text.includes("✓")) return "success";
-    if (text.includes("Network:")) return "info";
-    return undefined;
-  }
-
-  function toLogLines(lines: string[]): LogLine[] {
-    return lines.map((text) => ({ time: "", text, level: classifyLog(text) }));
-  }
-
-  async function mergeProjectStatus() {
-    const [list, statuses] = await Promise.all([listProjects(), listDevStatus()]);
-    const statusMap = new Map(statuses.map((s) => [s.id, s.status]));
-    rawProjectCount = list.length;
-    runningCount = statuses.filter((s) => s.status === "running" || s.status === "starting").length;
-    hasError = statuses.some((s) => s.status === "crashed");
-    projects = list.map((p) => ({
-      ...p,
-      status: (statusMap.get(p.id) ?? "stopped") as DevStatus,
-    }));
-    if (!selectedProjectId && projects.length > 0) {
-      selectedProjectId = projects[0].id;
-    }
-    if (selectedProjectId) {
-      const raw = await getDevLogs(selectedProjectId);
-      logs = toLogLines(raw);
-    }
-    conflict = null;
-  }
-
-  async function refreshPorts() {
-    portsLoading = true;
-    try {
-      ports = await listPorts();
-      formatRefreshTime();
-    } catch {
-      // preview without Tauri
-    } finally {
-      portsLoading = false;
-    }
-  }
-
-  async function refreshAll() {
-    await Promise.all([refreshPorts(), mergeProjectStatus()]);
-  }
-
-  async function handleKill(pid: number) {
-    if (!confirm(`确认 Kill PID ${pid} 及其子进程？`)) return;
-    try {
-      await killProcess(pid);
-      await refreshAll();
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  async function handleStart(id: string) {
-    conflict = null;
-    try {
-      const result = await startDev(id);
-      if (!result.ok) {
-        if (result.conflict) {
-          conflict = {
-            port: result.conflict.port,
-            pid: result.conflict.pid,
-            command: result.conflict.command,
-          };
-          projects = projects.map((p) =>
-            p.id === id ? { ...p, status: "conflict" } : p,
-          );
-        } else if (result.message) {
-          alert(result.message);
-        }
-        return;
-      }
-      selectedProjectId = id;
-      await refreshAll();
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  async function handleStop(id: string) {
-    try {
-      await stopDev(id);
-      await refreshAll();
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  async function handleOpen(project: Project) {
-    const url = project.openUrl ?? (project.port ? `http://localhost:${project.port}` : null);
-    if (url) await openUrl(url);
-  }
-
-  function openAddForm() {
-    editingProject = null;
-    formOpen = true;
-    activeTab = "projects";
-  }
-
-  function openEditForm(project: Project) {
-    editingProject = project;
-    formOpen = true;
-  }
-
-  async function handleSaveProject(project: Project) {
-    await upsertProject(project);
-    await mergeProjectStatus();
-  }
-
-  async function handleDeleteProject(id: string) {
-    const target = projects.find((p) => p.id === id);
-    if (!target) return;
-    if (!confirm(`确认删除项目「${target.name}」？`)) return;
-    await removeProject(id);
-    if (selectedProjectId === id) selectedProjectId = undefined;
-    await mergeProjectStatus();
-  }
+  import Feedback from "$lib/components/Feedback.svelte";
+  import OperationStatus from "$lib/components/OperationStatus.svelte";
+  import { app } from "$lib/store.svelte";
+  import { openDataDirectory } from "$lib/ipc";
+  import { updater } from "$lib/update.svelte";
 
   onMount(() => {
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const unsubs: Array<() => void> = [];
-
-    (async () => {
-      try {
-        settings = await loadSettings();
-        await refreshAll();
-
-        timer = setInterval(() => {
-          if (settings.autoRefresh) refreshAll();
-        }, 5000);
-
-        unsubs.push(
-          await listen("dev-log", (e) => {
-            const payload = e.payload as { id: string; line: string };
-            if (payload.id !== selectedProjectId) return;
-            logs = [
-              ...logs,
-              { time: "", text: payload.line, level: classifyLog(payload.line) },
-            ].slice(-2000);
-          }),
-        );
-        unsubs.push(
-          await listen("dev-status", () => {
-            mergeProjectStatus();
-          }),
-        );
-        unsubs.push(
-          await listen("open-project-form", () => {
-            openAddForm();
-          }),
-        );
-        unsubs.push(
-          await listen("trigger-refresh", () => {
-            refreshAll();
-          }),
-        );
-      } catch {
-        // browser preview
-      }
-    })();
-
-    return () => {
-      if (timer) clearInterval(timer);
-      unsubs.forEach((u) => u());
-    };
+    void app.boot();
+    void updater.init();
+    return () => app.dispose();
   });
-
-  async function handleSettingsChange(next: Settings) {
-    settings = next;
-    try {
-      await updateSettings(next);
-      await refreshPorts();
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  async function handleExportConfig() {
-    try {
-      const json = await exportConfig();
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().slice(0, 10);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `quick-dev-config-${stamp}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  async function handleImportConfig(file: File) {
-    if (!confirm("导入将覆盖当前项目与设置，是否继续？")) return;
-    try {
-      const json = await file.text();
-      await importConfig(json);
-      settings = await loadSettings();
-      await refreshAll();
-      alert("导入成功");
-    } catch (e) {
-      alert(String(e));
-    }
-  }
 </script>
 
-<div class="h-screen flex flex-col bg-qd-window text-qd-body select-none">
+<div class="h-dvh flex flex-col bg-qd-window text-qd-body select-none relative">
+  {#if app.booting}
+    <div class="qd-boot-overlay" role="status" aria-live="polite">
+      <div class="qd-boot-card">
+        <img src="/icon/logo.png" alt="" class="qd-boot-logo" />
+        <div class="qd-boot-title">即栈</div>
+        <div class="qd-boot-spinner" aria-hidden="true"></div>
+        <div class="qd-boot-hint">{app.bootHint || "加载中…"}</div>
+      </div>
+    </div>
+  {/if}
+
   <header class="h-10 flex items-center justify-center px-4 border-b border-qd-border bg-qd-window shrink-0 relative">
     <img src="/icon/logo.png" alt="即栈" class="absolute left-4 h-6 w-auto" />
     <span class="text-xs font-medium text-qd-muted tracking-wide">即栈 Quick Dev</span>
   </header>
 
-  <nav class="flex gap-0.5 px-3.5 pt-2 border-b border-qd-border shrink-0">
-    {#each tabs as tab}
+  {#if app.preview}
+    <div class="qd-inline-message" role="status">浏览器预览 · 端口扫描、进程管理和配置保存需在桌面应用中使用</div>
+  {:else if app.bootError}
+    <div class="qd-inline-message qd-inline-error" role="alert"><span>{app.bootError}</span><button class="qd-btn qd-btn-secondary" onclick={() => app.boot()}>重试</button></div>
+  {/if}
+  <nav aria-label="主导航" class="flex gap-0.5 px-3.5 pt-2 border-b border-qd-border shrink-0">
+    {#each app.tabs as tab}
       <button
         class="tab-btn text-[13px] font-medium px-3.5 py-2 rounded-t-md relative transition-colors"
-        class:active={activeTab === tab.id}
-        onclick={() => (activeTab = tab.id)}
+        class:active={app.activeTab === tab.id}
+        aria-current={app.activeTab === tab.id ? "page" : undefined}
+        onclick={() => (app.activeTab = tab.id)}
       >
-        {tab.label}
+        <ActionIcon name={tab.id === "ports" ? "ports" : tab.id === "projects" ? "folder" : "settings"} size={16} /> <span>{tab.label}</span>
         {#if tab.badge}
           <span class="ml-1 text-[10px] font-semibold px-1 py-px rounded bg-qd-danger-soft text-qd-danger align-middle">
             {tab.badge}
@@ -300,73 +58,107 @@
     {/each}
   </nav>
 
-  <main class="flex-1 overflow-hidden min-h-0">
-    {#if activeTab === "ports"}
+  <main class="flex-1 overflow-hidden min-h-0" inert={!!app.exitMessage || app.booting || !!app.bootError || app.preview || !!app.confirmation || app.formOpen || updater.dialogOpen}>
+    {#if app.activeTab === "ports"}
       <PortsPanel
-        {ports}
-        {lastRefresh}
-        loading={portsLoading}
-        onrefresh={refreshPorts}
-        onkill={handleKill}
-        onstopall={async () => { await stopAllDevs(); await refreshAll(); }}
-        onopenport={async (port) => { await openUrl(`http://localhost:${port}`); }}
-        onstopproject={handleStop}
+        focusTarget={app.portFocus}
+        onclearfocus={()=>app.portFocus=undefined}
+        ports={app.ports}
+        projects={app.projects}
+        lastRefresh={app.lastRefresh}
+        loading={app.portsLoading}
+        error={app.portsError}
+        runningCount={app.runningCount}
+        stopAllBusy={app.stopAllBusy}
+        stoppingIds={[...new Set([...app.stoppingIds, ...app.projects.filter(p => p.status === "stopping").map(p => p.id)])]}
+        killBusy={app.killBusy}
+        killingPid={app.killingPid}
+        onrefresh={() => app.refreshPorts()}
+        onkill={(pid) => app.handleKill(pid)}
+        onstopall={() => app.handleStopAll()}
+        onopenport={(port) => app.handleOpenPort(port)}
+        onstopproject={(id) => app.handleStop(id)}
       />
-    {:else if activeTab === "projects"}
+    {:else if app.activeTab === "projects"}
       <ProjectsPanel
-        {projects}
-        {logs}
-        {selectedProjectId}
-        {conflict}
-        onstart={handleStart}
-        onstop={handleStop}
-        onopen={handleOpen}
-        onselect={async (id) => {
-          selectedProjectId = id;
-          logs = toLogLines(await getDevLogs(id));
-        }}
-        onadd={openAddForm}
-        onedit={openEditForm}
-        ondelete={handleDeleteProject}
-        onkillconflict={handleKill}
+        projects={app.projects}
+        logs={app.logs}
+        selectedProjectId={app.selectedProjectId}
+        selectedServiceId={app.selectedServiceId}
+        serviceBusy={app.serviceBusy}
+        onservice={(id,service,kind) => app.handleService(id,service,kind)}
+        onopenservice={(p,service) => app.openService(p.id,service)}
+        onlogservice={(id,service) => app.openServiceLogs(id,service)}
+        onfilterlogs={(service) => app.selectLogService(service)}
+        conflict={app.conflict}
+        killBusy={app.killBusy}
+        startingId={app.startingId}
+        stoppingIds={[...new Set([...app.stoppingIds, ...app.projects.filter(p => p.status === "stopping").map(p => p.id)])]}
+        stopAllBusy={app.stopAllBusy}
+        logsLoading={app.logsLoading}
+        logHeight={app.logHeight}
+        onstart={(id) => app.handleStart(id)}
+        onstop={(id) => app.handleStop(id)}
+        onopen={(p) => app.handleOpen(p)}
+        onselect={(id) => app.selectProject(id)}
+        onadd={() => app.openAddForm()}
+        onedit={(p) => app.openEditForm(p)}
+        ondelete={(id) => app.handleDeleteProject(id)}
+        onkillconflict={(pid) => app.handleKill(pid)}
+        onlogheight={(h) => app.setLogHeight(h)}
+        onplanstart={(id,plan)=>app.handleStart(id,plan)}
+        onplanstop={(id,plan)=>app.handleStop(id,plan)}
+        oninspectconflict={(port,pid)=>app.inspectPort(port,pid)}
       />
     {:else}
       <SettingsPanel
-        {settings}
-        onchange={handleSettingsChange}
-        onexport={handleExportConfig}
-        onimport={handleImportConfig}
+        settings={app.settings}
+        busy={app.settingsBusy}
+        configBusy={app.configBusy}
+        onchange={(s) => app.handleSettingsChange(s)}
+        onexport={() => app.handleExportConfig()}
+        onimport={(f) => app.handleImportConfig(f)}
+        onopendirectory={(kind) => { void openDataDirectory(kind).catch(e => app.notify(`打开目录失败：${String(e)}`)); }}
       />
     {/if}
   </main>
 
   <footer class="h-7 flex items-center gap-2 px-4 text-[11px] text-qd-dim border-t border-qd-border shrink-0">
+    {#if app.operationText}
+      <OperationStatus text={app.operationText} startedAt={app.operationStartedAt} operationId={app.operationId} />
+    {:else}
     <span
       class="w-1.5 h-1.5 rounded-full"
-      class:bg-qd-danger={hasError}
-      class:bg-qd-running={!hasError && runningCount > 0}
-      class:animate-pulse={!hasError && runningCount > 0}
-      class:bg-qd-dim={!hasError && runningCount === 0}
+      class:bg-qd-danger={app.hasError}
+      class:bg-qd-running={!app.hasError && app.runningCount > 0}
+      class:bg-qd-dim={!app.hasError && app.runningCount === 0}
     ></span>
-    {#if hasError}
-      有项目异常退出
+    {#if app.portsLoading && app.activeTab === "ports"}
+      <span class="qd-spinner" aria-hidden="true"></span>
+      <span>刷新端口…</span>
+    {:else if app.hasError}
+      有服务异常，请查看项目详情
     {:else}
-      监听 {ports.length} 个端口 · {runningCount} 个项目运行中
+      监听 {app.ports.length} 个端口 · {app.runningCount} 个项目 · {app.runningServiceCount} 个服务运行 · {app.readyServiceCount} 个就绪
+    {/if}
     {/if}
   </footer>
 
+  <Feedback />
+
   <ProjectFormModal
-    open={formOpen}
-    editing={editingProject}
-    projectCount={rawProjectCount}
-    groups={settings.groups ?? []}
-    onclose={() => (formOpen = false)}
-    onsave={handleSaveProject}
+    open={app.formOpen}
+    editing={app.editingProject}
+    projectCount={app.projects.length}
+    groups={app.settings.groups ?? []}
+    onclose={() => (app.formOpen = false)}
+    onsave={(p) => app.handleSaveProject(p)}
   />
 </div>
 
 <style>
   .tab-btn {
+    display: inline-flex; align-items: center; gap: 6px;
     color: var(--color-qd-muted);
     background: transparent;
     border: none;

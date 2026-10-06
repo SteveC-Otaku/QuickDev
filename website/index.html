@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>即栈 · Quick Dev — 谁占了 :3000？Windows 多项目本地开发托盘</title>
+<meta name="description" content="即栈 Quick Dev：Windows 托盘里管理多个本地开发项目。自动识别前后端启动命令、一键启停、端口冲突一键定位。免费开源，支持 x64 与 ARM64。" />
+<meta property="og:title" content="即栈 Quick Dev — 谁占了 :3000？" />
+<meta property="og:description" content="Windows 多项目本地开发托盘：自动识别、方案启动、端口冲突一键定位。免费开源。" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="img/logo.png" />
+<style>
+  :root {
+    --bg: #0b0b0a;
+    --ink: #f2efe6;
+    --mute: #9a9588;
+    --line: #2c2b27;
+    --amber: #f0c14a;
+    --amber-ink: #1a1406;
+    --ok: #6dcf8a;
+    --warn: #ff8b6a;
+    --paper: #ebe6d8;
+    --paper-ink: #1c1a14;
+    --paper-mute: #6b665a;
+    --mono: "Cascadia Code", "Consolas", "Sarasa Mono SC", ui-monospace, monospace;
+    --sans: "Bahnschrift", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse 900px 480px at 12% -10%, rgba(240,193,74,0.08), transparent 60%),
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: auto, 28px 28px, 28px 28px;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+
+  .bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 18px clamp(20px, 4vw, 48px);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(12px);
+    background: rgba(11,11,10,0.86);
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 700; }
+  .brand img { width: 20px; height: 20px; position: relative; top: 3px; }
+  .brand .slash { color: var(--mute); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+  .bar-links { display: flex; align-items: center; gap: 22px; color: var(--mute); font-size: 13px; }
+  .bar-links a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1px solid transparent; padding: 11px 16px;
+    font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+    transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-amber { background: var(--amber); color: var(--amber-ink); border-color: var(--amber); box-shadow: 3px 3px 0 #000; }
+  .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn-ghost:hover { border-color: var(--mute); }
+  .btn-sm { padding: 8px 12px; font-size: 12px; font-family: var(--mono); font-weight: 600; }
+
+  /* chapter: hero */
+  .hero { padding: clamp(36px, 7vh, 72px) clamp(20px, 4vw, 48px) 56px; max-width: 1240px; margin: 0 auto; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--amber); letter-spacing: 0.04em; margin-bottom: 22px;
+  }
+  .tag::before {
+    content: ""; width: 7px; height: 7px; background: var(--amber);
+    box-shadow: 0 0 0 0 rgba(240,193,74,0.5); animation: ping 1.8s ease-out infinite;
+  }
+  .blast {
+    display: grid; grid-template-columns: 1.15fr 0.85fr; gap: clamp(28px, 4vw, 56px); align-items: end;
+  }
+  .blast h1 {
+    font-size: clamp(48px, 8.2vw, 104px); line-height: 1.08; letter-spacing: -0.04em; font-weight: 700; max-width: 8.5em;
+  }
+  .blast h1 .who { display: block; }
+  .port-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.12em; margin-top: 0.08em; }
+  .port {
+    font-family: var(--mono); color: var(--amber); font-weight: 700; letter-spacing: -0.06em; font-size: 1.05em;
+    text-shadow: 0 0 40px rgba(240,193,74,0.18);
+  }
+  .cursor {
+    display: inline-block; width: 0.42em; height: 0.92em; background: var(--amber);
+    margin-left: 0.08em; transform: translateY(0.08em); animation: blink 1.05s step-end infinite;
+  }
+  .aside-note {
+    border-left: 2px solid var(--amber); padding: 4px 0 4px 16px;
+    color: var(--mute); font-size: 15px; line-height: 1.7;
+  }
+  .aside-note strong { color: var(--ink); font-weight: 700; }
+  .aside-note code { font-family: var(--mono); color: var(--amber); font-size: 0.92em; }
+  .hero-actions {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 34px;
+  }
+  .meta-chip { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+
+  .live { margin-top: 48px; display: grid; grid-template-columns: 0.9fr 1.25fr; gap: 18px; }
+  .panel { border: 1px solid var(--line); background: rgba(20,19,17,0.9); min-height: 100%; overflow: hidden; }
+  .panel-h {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--mute); text-transform: uppercase;
+  }
+  .panel-h b { color: var(--amber); font-weight: 700; }
+  .live > aside.panel { display: flex; flex-direction: column; }
+  .rows { padding: 6px 0; flex: 1; display: flex; flex-direction: column; justify-content: space-around; }
+  .panel-f {
+    display: flex; justify-content: space-between; gap: 8px; padding: 10px 14px;
+    border-top: 1px solid var(--line); background: #181714;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--mute);
+  }
+  .panel-f span:nth-child(2) { color: var(--warn); }
+  .row {
+    display: grid; grid-template-columns: 88px 1fr auto; gap: 12px; align-items: center;
+    padding: 12px 14px; border-bottom: 1px solid #1f1e1b; font-size: 14px;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .p { font-family: var(--mono); color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row .n small { display: block; margin-top: 3px; color: var(--mute); font-size: 12px; font-family: var(--mono); }
+  .badge {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    padding: 4px 8px; border: 1px solid currentColor; font-weight: 700;
+  }
+  .badge.run { color: var(--ok); }
+  .badge.kill { color: var(--warn); }
+  .badge.idle { color: var(--mute); }
+  .product .chrome { display: flex; gap: 6px; align-items: center; }
+  .product .chrome i { width: 8px; height: 8px; border-radius: 50%; background: #3a3934; display: block; }
+  .product .chrome i:nth-child(1) { background: #ff6b6b; }
+  .product .chrome i:nth-child(2) { background: #e8b84a; }
+  .product .chrome i:nth-child(3) { background: #6dcf8a; }
+  .callout {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 14px 12px; border-top: 1px solid var(--line); background: #181714;
+    font-size: 13px; font-weight: 600;
+  }
+  .callout span { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--amber); letter-spacing: 0.04em; flex-shrink: 0; }
+
+  /* chapter: paper — timeline + compare + features */
+  .paper {
+    background: var(--paper); color: var(--paper-ink);
+    margin-top: 64px; padding: clamp(48px, 8vw, 88px) clamp(20px, 4vw, 48px);
+  }
+  .paper-inner { max-width: 1240px; margin: 0 auto; }
+  .paper h2 {
+    font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; line-height: 1.2; max-width: 14em; margin-bottom: 10px;
+  }
+  .paper .lead { color: var(--paper-mute); font-size: 16px; line-height: 1.7; max-width: 46ch; margin-bottom: 40px; }
+
+  .timeline {
+    --tl: #c9c2b0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    margin-bottom: 48px;
+    position: relative;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 12%; right: 12%; top: 22px;
+    height: 2px; background: var(--tl); z-index: 0;
+  }
+  .tl-step {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: 0 10px;
+  }
+  .tl-node {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #f7f3e8; border: 2px solid #1c1a14;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 13px; font-weight: 800;
+    box-shadow: 3px 3px 0 rgba(28,26,20,0.15);
+    margin-bottom: 14px;
+  }
+  .tl-step:nth-child(2) .tl-node,
+  .tl-step:nth-child(4) .tl-node {
+    background: var(--amber); color: var(--amber-ink); border-color: #1c1a14;
+  }
+  .tl-step strong {
+    display: block; font-size: 15px; letter-spacing: -0.02em; margin-bottom: 6px;
+  }
+  .tl-step p {
+    font-size: 12px; line-height: 1.5; color: var(--paper-mute); max-width: 18ch;
+  }
+
+  .compare {
+    border: 1px solid #d2cbb8;
+    background: #141310;
+    overflow: hidden;
+    box-shadow: 8px 8px 0 rgba(28,26,20,0.18);
+    margin-bottom: 18px;
+  }
+  .compare-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 16px; background: #1c1a14; color: var(--ink);
+    border-bottom: 1px solid #2c2b27;
+  }
+  .compare-head h3 { font-size: 15px; font-weight: 700; }
+  .compare-head p { font-size: 12px; color: var(--mute); font-family: var(--mono); }
+  .compare-labels {
+    display: flex; gap: 8px;
+  }
+  .pill {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    padding: 5px 9px; border: 1px solid currentColor;
+  }
+  .pill.before { color: var(--warn); }
+  .pill.after { color: var(--ok); }
+
+  .ba {
+    position: relative;
+    height: clamp(460px, 48vw, 620px);
+    user-select: none;
+    touch-action: none;
+    cursor: ew-resize;
+    overflow: hidden;
+    background: #0e0f12;
+  }
+  .ba-after {
+    position: absolute; inset: 0; z-index: 1;
+  }
+  .ba-before {
+    position: absolute; inset: 0 auto 0 0; z-index: 2;
+    width: var(--pos, 48%);
+    overflow: hidden;
+    border-right: 2px solid var(--amber);
+    background: #0a0c10;
+    isolation: isolate;
+  }
+  .ba-before-inner {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    height: 100%;
+    width: var(--ba-w, 100%);
+    background: #0a0c10;
+  }
+  .ba-frame { width: 100%; height: 100%; }
+
+  .chaos {
+    height: 100%;
+    background-color: #0a0c10;
+    background-image:
+      radial-gradient(circle at 20% 20%, #1a2330, #0a0c10 55%),
+      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.02) 2px, rgba(255,255,255,0.02) 4px);
+    padding: 28px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .chaos-title {
+    position: absolute; left: 20px; top: 16px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #ff8b6a; font-weight: 700;
+  }
+  .cmd {
+    position: absolute;
+    width: min(42%, 280px);
+    background: #0e1116;
+    border: 1px solid #3a4454;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+    font-family: var(--mono); font-size: 11px; color: #9fb0c3; line-height: 1.55;
+  }
+  .cmd header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: #1a2030; border-bottom: 1px solid #2c3545; color: #c8d2e0;
+    font-size: 10px;
+  }
+  .cmd header i { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+  .cmd header i:first-child { background: #ff5f57; }
+  .cmd header i:nth-child(2) { background: #febc2e; }
+  .cmd header i:nth-child(3) { background: #28c840; }
+  .cmd pre { padding: 10px; white-space: pre-wrap; margin: 0; }
+  .cmd.c1 { left: 8%; top: 18%; transform: rotate(-3deg); }
+  .cmd.c2 { left: 38%; top: 28%; transform: rotate(2.5deg); z-index: 2; }
+  .cmd.c3 { left: 18%; top: 52%; transform: rotate(-1.5deg); }
+  .cmd.c4 { left: 48%; top: 58%; transform: rotate(4deg); opacity: 0.92; }
+  .chaos-stamp {
+    position: absolute; right: 18px; bottom: 18px;
+    font-size: 13px; font-weight: 800; color: #ffb4a2;
+    border: 2px solid #ff8b6a; padding: 8px 10px; transform: rotate(-6deg);
+    background: rgba(20,10,8,0.7);
+  }
+
+  .order {
+    position: relative;
+    height: 100%;
+    background: #0e0f12;
+  }
+  .order-tag {
+    position: absolute; right: 16px; top: 16px; z-index: 3;
+    background: rgba(14,15,18,0.88); border: 1px solid #59d499; color: #59d499;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 6px 10px;
+  }
+
+  .ba-handle {
+    position: absolute; top: 0; bottom: 0; left: clamp(24px, var(--pos, 48%), calc(100% - 24px));
+    width: 0; z-index: 5; transform: translateX(-50%);
+    display: flex; align-items: center; justify-content: center; pointer-events: none;
+  }
+  .ba-knob {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #111; color: var(--amber);
+    border: 2px solid var(--amber);
+    box-shadow: 0 0 0 4px rgba(240,193,74,0.15), 0 10px 24px rgba(0,0,0,0.45);
+    display: grid; place-items: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .ba-knob svg { width: 22px; height: 22px; }
+  .ba:hover .ba-knob, .ba.is-drag .ba-knob { transform: scale(1.08); }
+  .ba:focus-within .ba-knob { box-shadow: 0 0 0 4px rgba(240,193,74,0.45), 0 10px 24px rgba(0,0,0,0.45); }
+  .ba-range {
+    position: absolute; left: 0; bottom: 0; width: 100%; height: 1px; margin: 0;
+    opacity: 0; pointer-events: none;
+  }
+
+  /* chapter: drawn app mock */
+  .qd {
+    --w: #0e0f12; --card: #15161c; --bd: #262733; --tx: #e8e9f0; --dim: #8b8d9c;
+    --brand: #7b8cff; --run: #59d499; --part: #e8b84a; --err: #ff6b6b;
+    display: flex; flex-direction: column; height: 100%;
+    background: var(--w); color: var(--tx); text-align: left;
+    font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    font-size: 13px; line-height: 1.4;
+  }
+  .qd-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--bd); }
+  .qd-top img { width: 18px; height: 18px; }
+  .qd-top b { font-weight: 600; }
+  .qd-tabs { display: flex; gap: 4px; margin-left: 14px; }
+  .qd-tabs span { padding: 4px 10px; border-radius: 6px; color: var(--dim); font-size: 12px; }
+  .qd-tabs .on { background: #1d1f2b; color: var(--tx); box-shadow: inset 0 -2px 0 var(--brand); }
+  .qd-main { flex: 1; min-height: 0; overflow: hidden; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .qd-head { display: flex; justify-content: space-between; align-items: center; }
+  .qd-head strong { font-size: 17px; font-weight: 700; }
+  .qd-add { background: var(--brand); color: #0b0c14; font-weight: 600; font-size: 12px; padding: 6px 12px; border-radius: 8px; }
+  .qd-search { border: 1px solid var(--bd); border-radius: 8px; padding: 8px 12px; color: var(--dim); font-size: 12px; background: #111218; }
+  .qd-chips { display: flex; gap: 6px; }
+  .qd-chips span { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--bd); color: var(--dim); font-size: 12px; }
+  .qd-chips .on { border-color: var(--brand); color: var(--tx); }
+  .qd-group { font-size: 11px; color: var(--dim); letter-spacing: 0.06em; }
+  .qd-card {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--bd); border-radius: 10px; background: var(--card);
+  }
+  .qd-card.sel { border-color: rgba(123,140,255,0.7); }
+  .qd-name { font-weight: 600; font-size: 14px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .qd-tag { font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 5px; background: #22243a; color: #aab3ff; }
+  .qd-tag.be { background: #1d2e26; color: #7fe0ae; }
+  .qd-meta { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+  .qd-meta .port { color: var(--brand); margin-right: 8px; font-weight: 700; }
+  .qd-state { justify-self: end; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .qd-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .qd-state.run { color: var(--run); }
+  .qd-state.part { color: var(--part); }
+  .qd-state.off { color: var(--dim); }
+  .qd-act { justify-self: end; display: flex; gap: 6px; }
+  .qd-btn { font-size: 12px; padding: 3px 10px; border-radius: 7px; border: 1px solid var(--bd); }
+  .qd-btn.go { color: var(--run); border-color: rgba(89,212,153,0.4); }
+  .qd-btn.stop { color: var(--err); border-color: rgba(255,107,107,0.4); }
+  .qd-btn.plan { color: #c3caff; background: rgba(123,140,255,0.15); border-color: rgba(123,140,255,0.45); }
+  .qd-svc { grid-column: 1 / -1; display: grid; gap: 4px; margin-top: 2px; padding-top: 8px; border-top: 1px dashed var(--bd); }
+  .qd-svc div { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .qd-svc .ok { color: var(--run); }
+  .qd-svc .bad { color: var(--err); }
+  .qd-foot { padding: 7px 14px; border-top: 1px solid var(--bd); font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .order .qd-main { padding: 22px 28px; gap: 12px; }
+  .order .qd { font-size: 14px; }
+
+  .compare-caption {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    border-top: 1px solid #2c2b27; background: #121110; color: #d8d2c4;
+  }
+  .compare-caption div { padding: 16px 18px; font-size: 13px; line-height: 1.55; }
+  .compare-caption div + div { border-left: 1px solid #2c2b27; }
+  .compare-caption strong {
+    display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .compare-caption .bad strong { color: var(--warn); }
+  .compare-caption .good strong { color: var(--ok); }
+
+  .hint {
+    margin: 10px 0 40px; font-size: 12px; color: var(--paper-mute); font-family: var(--mono);
+  }
+
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .card {
+    background: #f7f3e8; border: 1px solid #d9d2c1; padding: 22px 20px 20px;
+    min-height: 168px; display: flex; flex-direction: column; gap: 10px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .card:hover { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 #1c1a14; }
+  .card .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: #9a6b00; font-weight: 700;
+  }
+  .card h3 { font-size: 20px; letter-spacing: -0.02em; line-height: 1.3; }
+  .card p { color: var(--paper-mute); font-size: 14px; line-height: 1.65; margin-top: auto; }
+
+  /* chapter: real screenshots showcase */
+  .showcase { margin-top: 56px; }
+  .showcase-head {
+    display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .showcase-head .kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: #9a6b00; font-weight: 700; }
+  .showcase-head h3 { font-size: 24px; letter-spacing: -0.02em; margin-top: 6px; }
+  .tabs { display: flex; gap: 6px; padding: 4px; background: #e2dccb; border: 1px solid #d2cbb8; }
+  .tab {
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--paper-mute);
+    padding: 8px 14px; border: 0; background: transparent; cursor: pointer;
+  }
+  .tab:hover { color: var(--paper-ink); }
+  .tab[aria-selected="true"] { background: #1c1a14; color: var(--amber); }
+  .tab:focus-visible { outline: 2px solid #1c1a14; outline-offset: 2px; }
+  .shot-window {
+    border: 1px solid #2c2b27; background: #0e0f12;
+    box-shadow: 8px 8px 0 rgba(28,26,20,0.18);
+  }
+  .shot-bar {
+    display: flex; align-items: center; gap: 6px; padding: 10px 14px;
+    background: #1c1a14; border-bottom: 1px solid #2c2b27;
+    font-family: var(--mono); font-size: 11px; color: var(--mute); letter-spacing: 0.06em;
+  }
+  .shot-bar i { width: 8px; height: 8px; border-radius: 50%; background: #3a3934; }
+  .shot-bar i:nth-child(1) { background: #ff6b6b; }
+  .shot-bar i:nth-child(2) { background: #e8b84a; }
+  .shot-bar i:nth-child(3) { background: #6dcf8a; }
+  .shot-bar span { margin-left: 8px; }
+  .shot-bar em { margin-left: auto; font-style: normal; color: var(--amber); }
+  .shot-zoom { display: block; width: 100%; padding: 0; border: 0; background: #0e0f12; cursor: zoom-in; }
+  .shot-zoom img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; }
+  .shot-zoom:focus-visible { outline: 3px solid var(--amber); outline-offset: -3px; }
+  .thumbs { display: flex; gap: 10px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
+  .thumb {
+    flex: 0 0 168px; padding: 0; border: 2px solid transparent; background: #1c1a14;
+    cursor: pointer; text-align: left; font: inherit;
+  }
+  .thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; object-position: top left; opacity: 0.6; transition: opacity 0.15s; }
+  .thumb span { display: block; padding: 6px 8px; font-size: 12px; color: #d8d2c4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thumb:hover img { opacity: 0.9; }
+  .thumb[aria-current="true"] { border-color: var(--amber); }
+  .thumb[aria-current="true"] img { opacity: 1; }
+  .thumb:focus-visible { outline: 2px solid #1c1a14; outline-offset: 2px; }
+
+  .lightbox {
+    width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0;
+    border: 0; background: rgba(8,8,7,0.94); color: var(--ink);
+  }
+  .lightbox::backdrop { background: transparent; }
+  .lightbox[open] { display: grid; grid-template-rows: 1fr auto; place-items: center; }
+  .lightbox img { max-width: 94vw; max-height: calc(100vh - 90px); object-fit: contain; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+  .lb-bar { display: flex; gap: 16px; align-items: baseline; padding: 14px 20px 22px; font-size: 14px; }
+  .lb-bar b { font-family: var(--mono); font-size: 12px; color: var(--amber); }
+  .lb-btn {
+    position: fixed; width: 48px; height: 48px; border-radius: 50%;
+    border: 1px solid #3a3934; background: #141310; color: var(--ink); cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .lb-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .lb-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .lb-btn svg { width: 22px; height: 22px; }
+  .lb-prev { left: 20px; top: 50%; transform: translateY(-50%); }
+  .lb-next { right: 20px; top: 50%; transform: translateY(-50%); }
+  .lb-close { right: 20px; top: 20px; }
+  .shot-caption {
+    margin-top: 14px; display: flex; gap: 12px; align-items: baseline;
+    font-size: 14px; line-height: 1.6; color: var(--paper-mute);
+  }
+  .shot-caption b { font-family: var(--mono); font-size: 12px; color: #9a6b00; flex-shrink: 0; }
+
+  /* chapter: close */
+  .close {
+    max-width: 1240px; margin: 0 auto;
+    padding: 72px clamp(20px, 4vw, 48px) 80px;
+    display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 28px; align-items: center;
+  }
+  .close h2 { font-size: clamp(30px, 4.5vw, 48px); line-height: 1.15; letter-spacing: -0.03em; }
+  .close h2 em { font-style: normal; color: var(--amber); font-family: var(--mono); }
+  .close p { margin-top: 14px; color: var(--mute); font-size: 15px; line-height: 1.7; max-width: 40ch; }
+  .close .actions { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn.dl { flex-direction: column; align-items: flex-start; gap: 2px; line-height: 1.2; }
+  .btn.dl small { font-size: 11px; font-weight: 500; opacity: 0.7; font-family: var(--mono); }
+  .close p.dl-hint { margin-top: 14px; font-size: 12px; max-width: 60ch; }
+  .dl-hint a { color: var(--amber); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* chapter: changelog */
+  .changelog {
+    max-width: 1240px; margin: 0 auto; padding: 72px clamp(20px, 4vw, 48px) 0;
+    display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 40px;
+  }
+  .changelog .kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--amber); font-weight: 700; }
+  .changelog h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; margin-top: 8px; }
+  .changelog-head p { margin-top: 12px; color: var(--mute); font-size: 14px; line-height: 1.7; max-width: 36ch; }
+  .releases { list-style: none; border-left: 1px solid var(--line); }
+  .release { position: relative; padding: 0 0 28px 28px; }
+  .release::before {
+    content: ""; position: absolute; left: -5px; top: 6px; width: 9px; height: 9px;
+    background: var(--bg); border: 2px solid var(--mute); border-radius: 50%;
+  }
+  .release:first-child::before { border-color: var(--amber); background: var(--amber); }
+  .release-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+  .release-h b { font-family: var(--mono); color: var(--amber); font-size: 15px; }
+  .release-h span { font-weight: 600; }
+  .release-h time { font-family: var(--mono); font-size: 12px; color: var(--mute); margin-left: auto; }
+  .release ul { margin-top: 10px; padding-left: 18px; color: var(--mute); font-size: 14px; line-height: 1.8; }
+  .release:not(:first-child) ul { font-size: 13px; }
+
+  .terminal-box {
+    border: 1px solid var(--line); background: #121110; padding: 18px;
+    font-family: var(--mono); font-size: 13px; line-height: 1.7; color: var(--mute);
+  }
+  .terminal-box .ok { color: var(--ok); }
+  .terminal-box .am { color: var(--amber); }
+  .terminal-box .prompt-line::before { content: "> "; color: var(--amber); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 18px clamp(20px, 4vw, 48px) 28px;
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    color: var(--mute); font-size: 12px; font-family: var(--mono);
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes ping {
+    0% { box-shadow: 0 0 0 0 rgba(240,193,74,0.45); }
+    70% { box-shadow: 0 0 0 8px rgba(240,193,74,0); }
+    100% { box-shadow: 0 0 0 0 rgba(240,193,74,0); }
+  }
+  @media (max-width: 900px) {
+    .blast, .live, .close, .cards, .compare-caption, .timeline, .changelog { grid-template-columns: 1fr; }
+    .timeline::before { left: 22px; right: auto; top: 22px; bottom: 22px; width: 2px; height: auto; }
+    .tl-step { flex-direction: row; text-align: left; align-items: flex-start; gap: 14px; padding: 10px 0 10px 0; }
+    .tl-node { margin-bottom: 0; flex-shrink: 0; }
+    .bar-links a:not(.btn) { display: none; }
+    .blast h1 { max-width: none; }
+    .ba { height: 560px; }
+    .cmd { width: 58%; font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <img src="img/logo.png" alt="" />
+      即栈
+      <span class="slash">/ Quick Dev / win32</span>
+    </div>
+    <div class="bar-links">
+      <a href="#flow">能干啥</a>
+      <a href="#changelog">更新日志</a>
+      <a href="https://github.com/SteveC-Otaku/QuickDev" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-amber btn-sm" href="#download">download.exe</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="tag">local tray · no cloud drama</div>
+      <div class="blast">
+        <h1>
+          <span class="who">谁占了</span>
+          <span class="port-line"><span class="port">:3000</span><span class="cursor" aria-hidden="true"></span></span>
+        </h1>
+        <p class="aside-note">
+          桌面别再摊一堆乱 <code>cmd</code>。选目录点<strong>自动识别</strong>：前端 / 后端 / 桌面 App、启动命令和端口——
+          直接生成<strong>启动方案</strong>，一套起飞，日志都在面板里。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-amber" href="#download">免费下载 Windows 版</a>
+          <a class="btn btn-ghost" href="https://github.com/SteveC-Otaku/QuickDev" target="_blank" rel="noopener">看源码，别慌是 MIT</a>
+          <span class="meta-chip">v__VERSION__ · x64 / ARM64 · 无账号 · 不限项目数</span>
+        </div>
+      </div>
+
+      <div class="live">
+        <aside class="panel">
+          <div class="panel-h"><b>LISTEN</b><span>now · localhost</span></div>
+          <div class="rows">
+            <div class="row">
+              <span class="p">:5173</span>
+              <span class="n">官网前端<small>方案「官网」成员</small></span>
+              <span class="badge run">RUN</span>
+            </div>
+            <div class="row">
+              <span class="p">:3000</span>
+              <span class="n">？？？<small>外部占用 · 可跳转 Kill</small></span>
+              <span class="badge kill">KILL?</span>
+            </div>
+            <div class="row">
+              <span class="p">:5181</span>
+              <span class="n">API<small>与 App 共享后端</small></span>
+              <span class="badge run">RUN</span>
+            </div>
+            <div class="row">
+              <span class="p">:8080</span>
+              <span class="n">后端 API<small>cargo run · 已就绪</small></span>
+              <span class="badge run">RUN</span>
+            </div>
+            <div class="row">
+              <span class="p">:1420</span>
+              <span class="n">桌面 App<small>方案「桌面 App」· 补齐启动</small></span>
+              <span class="badge run">RUN</span>
+            </div>
+            <div class="row">
+              <span class="p">:5432</span>
+              <span class="n">Postgres<small>系统服务 · 不归项目管</small></span>
+              <span class="badge idle">SYS</span>
+            </div>
+            <div class="row">
+              <span class="p">tray</span>
+              <span class="n">系统托盘<small>关窗不散场</small></span>
+              <span class="badge idle">HOTKEY</span>
+            </div>
+          </div>
+          <div class="panel-f"><span>7 listening</span><span>1 conflict</span><span>0 终端窗口</span></div>
+        </aside>
+
+        <figure class="panel product">
+          <div class="panel-h">
+            <span class="chrome" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>即栈 · 项目面板（最新）</span>
+          </div>
+          <div data-qd role="img" aria-label="即栈项目面板：分组、多服务与启动方案"></div>
+          <div class="callout">
+            <span>// now</span>
+            分组筛选 · 多服务卡片 · 方案级启停，不是老版本单命令列表。
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="paper" id="flow">
+      <div class="paper-inner">
+        <h2>别背启动命令，也别养一桌黑窗。</h2>
+        <p class="lead">从选目录到起飞，四步走完。识别按网页前端 / 后端服务 / 桌面 App / 待确认分类，再生成可改的启动方案。</p>
+
+        <ol class="timeline" aria-label="添加项目流程">
+          <li class="tl-step">
+            <div class="tl-node">01</div>
+            <strong>选目录</strong>
+            <p>浏览项目根目录，名称可留空自动用文件夹名</p>
+          </li>
+          <li class="tl-step">
+            <div class="tl-node">02</div>
+            <strong>一键分析</strong>
+            <p>读 package.json / 锁文件 / Tauri，标好类型与命令</p>
+          </li>
+          <li class="tl-step">
+            <div class="tl-node">03</div>
+            <strong>确认方案</strong>
+            <p>官网 = 前端+后端；App 默认真身，可勾共享后端</p>
+          </li>
+          <li class="tl-step">
+            <div class="tl-node">04</div>
+            <strong>起飞</strong>
+            <p>方案级启动 / 补齐 / 停止；成功可开网页或聚焦窗口</p>
+          </li>
+        </ol>
+
+        <div class="compare" aria-label="使用前后对比">
+          <div class="compare-head">
+            <div>
+              <h3>同一台开发机，拖一下看差别</h3>
+              <p>drag the handle · before / after</p>
+            </div>
+            <div class="compare-labels">
+              <span class="pill before">BEFORE</span>
+              <span class="pill after">AFTER</span>
+            </div>
+          </div>
+
+          <div class="ba" id="ba" style="--pos:48%">
+            <div class="ba-after">
+              <div class="ba-frame order" data-qd role="img" aria-label="即栈整理后的项目与服务">
+                <span class="order-tag">AFTER · 即栈面板</span>
+              </div>
+            </div>
+            <div class="ba-before" id="baBefore">
+              <div class="ba-before-inner" id="baBeforeInner">
+                <div class="ba-frame chaos" aria-hidden="true">
+                  <div class="chaos-title">BEFORE · DESKTOP CHAOS</div>
+                  <div class="cmd c1">
+                    <header><i></i><i></i><i></i><span>cmd.exe — api</span></header>
+                    <pre>cd /d D:\proj\api
+pnpm dev
+... waiting on :5181
+（这窗是后端？）</pre>
+                  </div>
+                  <div class="cmd c2">
+                    <header><i></i><i></i><i></i><span>powershell — web</span></header>
+                    <pre>npm run dev
+Port 3000 is in use.
+Error: listen EADDRINUSE</pre>
+                  </div>
+                  <div class="cmd c3">
+                    <header><i></i><i></i><i></i><span>cmd.exe — ???</span></header>
+                    <pre>netstat -ano | findstr 3000
+taskkill /PID ???? /F
+（再猜一次）</pre>
+                  </div>
+                  <div class="cmd c4">
+                    <header><i></i><i></i><i></i><span>Windows PowerShell</span></header>
+                    <pre>cd frontend
+pnpm? npm? yarn?
+哪条是 tauri dev…</pre>
+                  </div>
+                  <div class="chaos-stamp">4+ 黑窗 · 命令靠背</div>
+                </div>
+              </div>
+            </div>
+            <div class="ba-handle" aria-hidden="true">
+              <div class="ba-knob">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></svg>
+              </div>
+            </div>
+            <input class="ba-range" id="baRange" type="range" min="0" max="100" value="48" aria-label="拖动对比使用前与使用后" />
+          </div>
+
+          <div class="compare-caption">
+            <div class="bad">
+              <strong>BEFORE · 手工档</strong>
+              桌面一排 cmd；官网到底 pnpm 还是 npm；前端后端谁先起；端口冲突再开第五个窗。
+            </div>
+            <div class="good">
+              <strong>AFTER · 即栈</strong>
+              自动识别分类 → 启动方案 → 托盘与日志集中；冲突可跳到端口页展开来源再 Kill。
+            </div>
+          </div>
+        </div>
+        <p class="hint">提示：拖动中间圆钮或直接点任意位置 · 左乱右清</p>
+
+        <div class="cards">
+          <article class="card">
+            <div class="kicker">01 · AUTO DETECT</div>
+            <h3>选目录，命令它来认</h3>
+            <p>识别 Vite / Next / Nuxt / Astro、Nest 等后端、Electron / Tauri、Django；未知入口标「待确认」，不装懂。</p>
+          </article>
+          <article class="card">
+            <div class="kicker">02 · LAUNCH PLANS</div>
+            <h3>官网 / App 两套方案</h3>
+            <p>推荐入口一键生成方案。同时或按序启动；共享后端引用不重复起；托盘也能选方案。</p>
+          </article>
+          <article class="card">
+            <div class="kicker">03 · NO CMD JUNK</div>
+            <h3>桌面不再开黑窗派对</h3>
+            <p>输出进日志面板，关窗进托盘。热键唤起；开机仅托盘，不会偷跑全家 dev。</p>
+          </article>
+          <article class="card">
+            <div class="kicker">04 · PORT JUMP</div>
+            <h3>冲突直接跳到真凶</h3>
+            <p>「查看占用详情」切到端口页、筛选、定位并展开进程链——谁占了 :3000 不用再 netstat。</p>
+          </article>
+        </div>
+
+        <div class="showcase" id="showcase">
+          <div class="showcase-head">
+            <div>
+              <div class="kicker">REAL SCREENSHOTS · 最新版本</div>
+              <h3>不是概念图，是现在就能装的样子</h3>
+            </div>
+            <div class="tabs" role="tablist" aria-label="截图分类">
+              <button class="tab" role="tab" aria-selected="true" data-cat="ports">端口</button>
+              <button class="tab" role="tab" aria-selected="false" data-cat="projects">项目</button>
+              <button class="tab" role="tab" aria-selected="false" data-cat="add">添加与识别</button>
+              <button class="tab" role="tab" aria-selected="false" data-cat="more">设置与托盘</button>
+            </div>
+          </div>
+          <div class="shot-window" role="tabpanel">
+            <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i><span id="shotTitle"></span><em>点击放大 ⤢</em></div>
+            <button class="shot-zoom" id="shotZoom" type="button" aria-label="放大查看当前截图">
+              <img id="shotImg" width="2074" height="1166" alt="" />
+            </button>
+          </div>
+          <div class="thumbs" id="shotThumbs" aria-label="本分类截图"></div>
+          <p class="shot-caption"><b>// now</b><span id="shotCap"></span></p>
+        </div>
+        <dialog class="lightbox" id="lightbox" aria-label="截图大图">
+          <img id="lbImg" alt="" />
+          <div class="lb-bar"><b id="lbCount"></b><span id="lbCap"></span></div>
+          <button class="lb-btn lb-prev" type="button" aria-label="上一张"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button class="lb-btn lb-next" type="button" aria-label="下一张"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button class="lb-btn lb-close" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </dialog>
+      </div>
+    </section>
+
+    <section class="changelog" id="changelog">
+      <div class="changelog-head">
+        <span class="kicker">CHANGELOG</span>
+        <h2>更新日志</h2>
+        <p>软件内「设置 → 关于与更新」能看到同一份记录；有新版本时会弹窗提示，点一下就能更新。</p>
+      </div>
+      <ol class="releases">
+<!--CHANGELOG-->
+      </ol>
+    </section>
+
+    <section class="close" id="download">
+      <div>
+        <h2>把 <em>:3000</em> 的悬疑片，改成动作片。</h2>
+        <p>完全免费开源。数据只在 <span style="font-family:var(--mono);color:var(--amber)">%LOCALAPPDATA%\QuickDev\</span>，不收集账号，只在检查更新时联网。装好后软件内就能一键更新。</p>
+        <div class="actions">
+          <a class="btn btn-amber dl" href="downloads/QuickDev___VERSION___x64-setup.exe" download>下载 x64 版<small>大多数电脑 · __SIZE_X64__</small></a>
+          <a class="btn btn-ghost dl" href="downloads/QuickDev___VERSION___arm64-setup.exe" download>下载 ARM64 版<small>骁龙 / Surface Pro X · __SIZE_ARM64__</small></a>
+        </div>
+        <p class="dl-hint">v__VERSION__ · Windows 10 / 11 · 不确定选哪个？设置 → 系统 → 系统信息 → 「系统类型」写着 ARM 就选 ARM64。也可以去 <a href="https://github.com/SteveC-Otaku/QuickDev/releases/latest" target="_blank" rel="noopener">GitHub Releases</a> 下载。</p>
+      </div>
+      <div class="terminal-box" aria-hidden="true">
+        <div class="prompt-line">quickdev add D:\Suite</div>
+        <div><span class="ok">detect</span> web · Vite · <span class="am">pnpm run dev</span></div>
+        <div><span class="ok">detect</span> api · Nest · <span class="am">pnpm --filter api dev</span></div>
+        <div><span class="ok">plan</span> 官网 = web + api · App = tauri</div>
+        <div class="prompt-line">quickdev start plan:官网</div>
+        <div><span class="ok">done</span> 0 cmd windows · logs in panel</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>即栈 Quick Dev · MIT · v__VERSION__</span>
+    <span>Windows 10 / 11 · unsigned build 选「仍要运行」即可</span>
+  </footer>
+
+  <template id="qdMock">
+    <div class="qd" aria-hidden="true">
+      <div class="qd-top">
+        <img src="img/logo.png" alt="" /><b>即栈 Quick Dev</b>
+        <div class="qd-tabs"><span>端口</span><span class="on">项目</span><span>设置</span></div>
+      </div>
+      <div class="qd-main">
+        <div class="qd-head"><strong>我的项目</strong><span class="qd-add">+ 添加项目</span></div>
+        <div class="qd-search">搜索项目或服务名称、路径或命令…</div>
+        <div class="qd-chips"><span class="on">全部</span><span>个人</span><span>工作</span></div>
+        <div class="qd-group">个人</div>
+        <div class="qd-card">
+          <div class="qd-name">个人网站 <span class="qd-tag">网页前端</span></div>
+          <span class="qd-state run">运行中</span>
+          <div class="qd-meta"><span class="port">:3000</span>D:\Projects\portfolio · pnpm dev</div>
+          <div class="qd-act"><span class="qd-btn stop">停止</span></div>
+        </div>
+        <div class="qd-group">工作</div>
+        <div class="qd-card sel">
+          <div class="qd-name">即栈 <span class="qd-tag">前端 Web</span><span class="qd-tag be">后端 API</span></div>
+          <span class="qd-state part">部分运行</span>
+          <div class="qd-meta"><span class="port">:1420</span>D:\Projects\QuickDev · 方案「官网」</div>
+          <div class="qd-act"><span class="qd-btn plan">补齐启动</span><span class="qd-btn stop">停止</span></div>
+          <div class="qd-svc">
+            <div><span>后端 API · :8080 · cargo run</span><span class="ok">● 运行</span></div>
+            <div><span>前端 Web · :1420 · npm run dev</span><span class="bad">● 端口被占</span></div>
+          </div>
+        </div>
+        <div class="qd-card">
+          <div class="qd-name">测试 API <span class="qd-tag be">后端服务</span></div>
+          <span class="qd-state off">已停止</span>
+          <div class="qd-meta"><span class="port">:8000</span>D:\Projects\api · uvicorn main:app</div>
+          <div class="qd-act"><span class="qd-btn go">启动</span></div>
+        </div>
+      </div>
+      <div class="qd-foot">监听 12 个端口 · 3 个服务运行 · 1 个冲突</div>
+    </div>
+  </template>
+
+  <script>
+    /* chapter: screenshots gallery + lightbox */
+    (function () {
+      var SHOTS = [
+        ["ports", "ports", "端口总览", "所有监听端口一屏看清：哪个项目、哪个进程、哪个命令。"],
+        ["ports", "ports-source", "追溯来源", "展开 :3000 就能看到进程链：谁拉起了它、在哪个目录、用什么命令。"],
+        ["ports", "ports-kill", "结束占用", "确认后释放端口，提示写清后果，不会误杀别的项目。"],
+        ["ports", "ports-jump", "冲突跳转", "从项目页点「查看占用详情」，直接定位到对应端口并展开来源。"],
+        ["ports", "ports-loading", "首次扫描", "启动瞬间先给骨架屏，扫描完成自动填充。"],
+        ["ports", "ports-error", "扫描失败", "端口扫描出错时只影响这一栏，项目启停和日志照常可用。"],
+        ["projects", "projects-logs", "项目与日志", "项目列表右侧直接看实时日志，不用再开一堆终端窗口。"],
+        ["projects", "projects-services", "多服务启动", "前后端分别显示状态：后端已就绪、前端失败时单独重试。"],
+        ["projects", "projects-conflict", "端口被占", "启动前发现 :3000 被占，一键「结束并启动」或先看是谁占的。"],
+        ["projects", "projects-toast", "错误提示", "启动失败给出可操作的原因，比如 pnpm 不在 PATH 中。"],
+        ["add", "add-detecting", "正在识别", "选好目录后自动扫描 package.json、Cargo.toml 等入口。"],
+        ["add", "add-detected", "识别结果", "自动分出前端 / 后端 / App，生成「官网」「桌面 App」「全部」三个方案。"],
+        ["add", "add-app-plan", "切换方案", "同一个项目不同启动组合，切换即可看到对应命令。"],
+        ["add", "add-params", "服务参数", "执行目录、端口、环境变量都能按服务单独调整。"],
+        ["more", "settings", "设置", "关窗留托盘、开机自启、托盘动画、日志落盘、刷新间隔，改完自动保存。"],
+        ["more", "settings-more", "更多设置", "全局热键、Shell、开发端口范围、分组与 JSON 备份。"],
+        ["more", "tray", "托盘菜单", "不开窗口也能启停：托盘里按项目展开，图标颜色就是运行状态。"]
+      ].map(function (s) { return { cat: s[0], src: "img/shots/" + s[1] + ".png", title: s[2], cap: s[3] }; });
+
+      var tabs = document.querySelectorAll("#showcase .tab");
+      var img = document.getElementById("shotImg");
+      var title = document.getElementById("shotTitle");
+      var cap = document.getElementById("shotCap");
+      var strip = document.getElementById("shotThumbs");
+      var lb = document.getElementById("lightbox");
+      var lbImg = document.getElementById("lbImg");
+      var lbCap = document.getElementById("lbCap");
+      var lbCount = document.getElementById("lbCount");
+      var cur = 0;
+
+      function show(i) {
+        cur = i;
+        var s = SHOTS[i];
+        img.src = s.src; img.alt = s.title + "：" + s.cap;
+        title.textContent = "即栈 Quick Dev · " + s.title;
+        cap.textContent = s.cap;
+        strip.querySelectorAll(".thumb").forEach(function (b) {
+          b.setAttribute("aria-current", String(Number(b.dataset.i) === i));
+        });
+      }
+      function select(tab) {
+        tabs.forEach(function (t) {
+          var on = t === tab;
+          t.setAttribute("aria-selected", String(on));
+          t.tabIndex = on ? 0 : -1;
+        });
+        strip.textContent = "";
+        var first = -1;
+        SHOTS.forEach(function (s, i) {
+          if (s.cat !== tab.dataset.cat) return;
+          if (first < 0) first = i;
+          var b = document.createElement("button");
+          b.type = "button"; b.className = "thumb"; b.dataset.i = i;
+          b.innerHTML = '<img loading="lazy" alt="" src="' + s.src + '"><span>' + s.title + "</span>";
+          b.addEventListener("click", function () { show(i); });
+          strip.appendChild(b);
+        });
+        show(first);
+      }
+      function openLb(i) {
+        cur = (i + SHOTS.length) % SHOTS.length;
+        var s = SHOTS[cur];
+        lbImg.src = s.src; lbImg.alt = s.title;
+        lbCap.textContent = s.title + " · " + s.cap;
+        lbCount.textContent = (cur + 1) + " / " + SHOTS.length;
+        if (!lb.open) lb.showModal();
+      }
+      function syncFromLb() {
+        var t = Array.prototype.find.call(tabs, function (x) { return x.dataset.cat === SHOTS[cur].cat; });
+        var keep = cur;
+        if (t.getAttribute("aria-selected") !== "true") select(t);
+        show(keep);
+      }
+
+      document.getElementById("shotZoom").addEventListener("click", function () { openLb(cur); });
+      lb.querySelector(".lb-prev").addEventListener("click", function () { openLb(cur - 1); });
+      lb.querySelector(".lb-next").addEventListener("click", function () { openLb(cur + 1); });
+      lb.querySelector(".lb-close").addEventListener("click", function () { lb.close(); });
+      lb.addEventListener("click", function (e) { if (e.target === lb) lb.close(); });
+      lb.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight") openLb(cur + 1);
+        if (e.key === "ArrowLeft") openLb(cur - 1);
+      });
+      lb.addEventListener("close", syncFromLb);
+
+      tabs.forEach(function (t, i) {
+        t.addEventListener("click", function () { select(t); });
+        t.addEventListener("keydown", function (e) {
+          var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          if (!d) return;
+          var next = tabs[(i + d + tabs.length) % tabs.length];
+          select(next); next.focus();
+        });
+      });
+      select(tabs[0]);
+    })();
+    (function () {
+      var tpl = document.getElementById("qdMock");
+      document.querySelectorAll("[data-qd]").forEach(function (el) {
+        el.appendChild(tpl.content.cloneNode(true));
+      });
+    })();
+    (function () {
+      var root = document.getElementById("ba");
+      var range = document.getElementById("baRange");
+      var before = document.getElementById("baBefore");
+      var inner = document.getElementById("baBeforeInner");
+      if (!root || !range || !before || !inner) return;
+
+      function syncWidth() {
+        root.style.setProperty("--ba-w", root.clientWidth + "px");
+      }
+      function setPos(v) {
+        var n = Math.max(0, Math.min(100, Number(v)));
+        root.style.setProperty("--pos", n + "%");
+        before.style.width = n + "%";
+        range.value = String(Math.round(n));
+      }
+      function fromPointer(e) {
+        var r = root.getBoundingClientRect();
+        setPos((e.clientX - r.left) / r.width * 100);
+      }
+
+      root.addEventListener("pointerdown", function (e) {
+        root.setPointerCapture(e.pointerId);
+        root.classList.add("is-drag");
+        range.focus({ preventScroll: true });
+        fromPointer(e);
+      });
+      root.addEventListener("pointermove", function (e) {
+        if (root.hasPointerCapture(e.pointerId)) fromPointer(e);
+      });
+      root.addEventListener("pointerup", function () { root.classList.remove("is-drag"); });
+      root.addEventListener("pointercancel", function () { root.classList.remove("is-drag"); });
+      range.addEventListener("input", function () { setPos(range.value); });
+      window.addEventListener("resize", syncWidth);
+      syncWidth();
+      setPos(range.value);
+    })();
+  </script>
+</body>
+</html>
