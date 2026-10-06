@@ -1,6 +1,6 @@
 // Usage: npm run release [-- --skip-build] [-- --upload]
-// Env:   QUICKDEV_OSS_BASE   public URL of the site root, e.g. https://quickdev.example.com
-//        QUICKDEV_OSS_TARGET ossutil destination, e.g. oss://my-bucket/quickdev
+// Env:   QUICKDEV_OSS_BASE   public URL of the site root (default: https://quickdev.steve-lab.cc)
+//        QUICKDEV_OSS_TARGET ossutil destination, e.g. oss://quickdev
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,7 +14,7 @@ const version = readJson("src-tauri/tauri.conf.json").version;
 const changelog = readJson("release/changelog.json");
 if (changelog[0]?.version !== version) throw new Error(`release/changelog.json 顶部缺少 v${version} 的记录`);
 
-const ossBase = process.env.QUICKDEV_OSS_BASE?.replace(/\/+$/, "");
+const ossBase = (process.env.QUICKDEV_OSS_BASE ?? "https://quickdev.steve-lab.cc").replace(/\/+$/, "");
 const ghBase = `https://github.com/SteveC-Otaku/QuickDev/releases/download/v${version}`;
 const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH ?? path.join(os.homedir(), ".tauri", "quickdev-updater.key");
 const targets = [
@@ -54,9 +54,8 @@ const manifest = (base) => JSON.stringify({
   platforms: Object.fromEntries(targets.map((t) => [t.platform, { signature: t.sig, url: `${base}/${t.name}` }])),
 }, null, 2);
 fs.writeFileSync(path.join(gh, "latest.json"), manifest(ghBase));
-fs.writeFileSync(path.join(oss, "latest.json"), manifest(ossBase ? `${ossBase}/downloads` : ghBase));
+fs.writeFileSync(path.join(oss, "latest.json"), manifest(`${ossBase}/downloads`));
 fs.copyFileSync(path.join(root, "release", "changelog.json"), path.join(oss, "changelog.json"));
-if (!ossBase) console.warn("[release] 未设置 QUICKDEV_OSS_BASE，OSS 版 latest.json 暂时指向 GitHub 下载地址");
 
 /* chapter: render website */
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);

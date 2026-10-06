@@ -17,11 +17,11 @@
 
 当前版本 **v1.0.0**。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
 
-官网：[quickdev.oss-cn-hongkong.aliyuncs.com](https://quickdev.oss-cn-hongkong.aliyuncs.com/)
+官网：[quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
 ## 下载
 
-到 [官网](https://quickdev.oss-cn-hongkong.aliyuncs.com/#download) 或 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest) 下载 **v1.0.0**：
+到 [官网](https://quickdev.steve-lab.cc/#download) 或 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest) 下载 **v1.0.0**：
 
 | 安装包 | 适用 |
 | --- | --- |

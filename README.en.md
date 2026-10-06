@@ -17,11 +17,11 @@
 
 Current version **v1.0.0**. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
 
-Site: [quickdev.oss-cn-hongkong.aliyuncs.com](https://quickdev.oss-cn-hongkong.aliyuncs.com/)
+Site: [quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
 ## Download
 
-Get **v1.0.0** from the [website](https://quickdev.oss-cn-hongkong.aliyuncs.com/#download) or [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest):
+Get **v1.0.0** from the [website](https://quickdev.steve-lab.cc/#download) or [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest):
 
 | Installer | For |
 | --- | --- |
