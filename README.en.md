@@ -48,7 +48,11 @@ After install, open **Settings → About & updates**: the app checks for updates
 
 ![Quick Dev ports panel](demo/ports-panel.png)
 
-![Quick Dev projects panel](demo/projects-panel.png)
+![Quick Dev multi-service project](demo/projects-panel.png)
+
+![Quick Dev auto-detect](demo/auto-detect.png)
+
+![Quick Dev tray menu](demo/tray-menu.png)
 
 ---
 

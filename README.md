@@ -48,7 +48,11 @@
 
 ![即栈端口面板](demo/ports-panel.png)
 
-![即栈项目面板](demo/projects-panel.png)
+![即栈多服务项目](demo/projects-panel.png)
+
+![即栈自动识别](demo/auto-detect.png)
+
+![即栈托盘菜单](demo/tray-menu.png)
 
 ---
 
