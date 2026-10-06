@@ -48,6 +48,8 @@ After install, open **Settings → About & updates**: the app checks for updates
 
 ![Quick Dev ports panel](demo/ports-panel.png)
 
+![Quick Dev projects panel](demo/projects-panel.png)
+
 ---
 
 ## Stack

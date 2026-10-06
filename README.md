@@ -48,6 +48,8 @@
 
 ![即栈端口面板](demo/ports-panel.png)
 
+![即栈项目面板](demo/projects-panel.png)
+
 ---
 
 ## 技术栈
