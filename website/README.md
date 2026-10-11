@@ -10,7 +10,7 @@
 npm run build:website
 ```
 
-输出目录为 `release/dist/v<version>/oss/`，包含首页、图片、x64/ARM64 安装包、官网更新清单和更新日志。这个命令不编译原生安装包、不改写 GitHub 发布目录中的安装包或更新清单，也不上传文件。版本来自 Tauri 配置，更新公告来自 `release/changelog.json`，安装包和签名必须已存在于双架构打包目录。
+输出目录为 `release/dist/v<version>/oss/`，包含首页、图片、x64/ARM64 安装包、官网更新清单和更新日志。这个命令不编译原生安装包、不改写 GitHub 发布目录中的安装包或更新清单，也不上传文件。版本来自 Tauri 配置，更新公告来自 `release/changelog.json`；优先读取 `release/dist/v<version>/github/` 中保留的正式安装包和 `.sig` 签名，因此清理原生打包缓存后仍可构建。缺少正式签名文件时，才读取原生双架构打包目录。
 
 `npm run build` 构建应用前端到 `build/`，不部署官网，也不生成 Windows 安装包。
 

@@ -38,7 +38,11 @@ fs.mkdirSync(path.join(oss, "downloads"), { recursive: true });
 fs.mkdirSync(gh, { recursive: true });
 
 for (const t of targets) {
-  const dir = path.join(root, "src-tauri", "target", t.triple, "release", "bundle", "nsis");
+  const retainedName = `QuickDev_${version}_${t.arch}-setup.exe`;
+  const retainedReady = fs.existsSync(path.join(gh, retainedName)) && fs.existsSync(path.join(gh, `${retainedName}.sig`));
+  const dir = websiteOnly && retainedReady
+    ? gh
+    : path.join(root, "src-tauri", "target", t.triple, "release", "bundle", "nsis");
   const exe = fs.readdirSync(dir).find((f) => f.endsWith(`_${version}_${t.arch}-setup.exe`));
   if (!exe || !fs.existsSync(path.join(dir, `${exe}.sig`))) throw new Error(`缺少 ${t.arch} 安装包或签名：${dir}`);
   t.name = `QuickDev_${version}_${t.arch}-setup.exe`;

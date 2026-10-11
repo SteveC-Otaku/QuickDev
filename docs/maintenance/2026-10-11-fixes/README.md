@@ -10,19 +10,15 @@
 - `archive/`：修复中间草稿、历史复现脚本、修改引用前的原件。这里不是当前源码，也不作为当前回归入口；历史脚本可能仍断言修复前的缺陷。
 - `relocation-inventory.json`、`relocation-moves.json`：逐文件原位置、现位置、原始哈希及移动项。恢复时应按映射逐项核对，目标已有文件时不要覆盖。
 
-最终交付位于项目内 `release/dist/maintenance-2026-10-11/`：
-
-- [最终完整 x64 安装包](../../../release/dist/maintenance-2026-10-11/QuickDev_1.0.0_20261011_final-fixes_x64-setup.exe)
-- [最终程序副本](../../../release/dist/maintenance-2026-10-11/quick-dev-final-fixes.exe)
-- [最终构建证据](evidence/final-fixes-build-evidence.json)
+原测试交付曾位于 `release/dist/maintenance-2026-10-11/`。2026-10-11 目录清理已删除这些非正式安装包、程序副本及诊断二进制，保留 [最终构建证据](evidence/final-fixes-build-evidence.json)。正式版本统一保留于 `release/dist/v<version>/github/`。
 
 安装包 SHA-256：`5361CD9DA124C43918FA5DC302E7C32F744D626F9541C85E0CDD7B2179ED0C21`。
 程序 SHA-256：`5FF9B897B06E110CD1013C6494EE1D922EF7F2E36886DA1884330658BEFBCEEA`。
-版本仍为 1.0.0，未签名。旧批次产物也保存在上述交付目录；诊断 EXE/PDB 位于其 `diagnostic-binaries/`。
+上述哈希仅用于追溯已清理的历史测试交付，不是当前正式版本的下载校验值。
 
 ## 后续版本
 
-本目录的旧交付为修复期间的 1.0.0 测试包。当前源码为 1.0.1，版本公告见 [1.0.1](../../releases/1.0.1.md)，新交付在 release/dist/v1.0.1/local。旧材料保留用于追溯。
+本目录的旧交付为修复期间的 1.0.0 测试包。当前源码为 1.0.1，版本公告见 [1.0.1](../../releases/1.0.1.md)，正式交付在 release/dist/v1.0.1/github。旧证据和检测工程保留用于追溯。
 
 ## 验证入口
 

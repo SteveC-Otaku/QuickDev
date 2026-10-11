@@ -56,13 +56,13 @@ See [release notes](docs/releases/1.0.1.md) and [layout and verification](docs/R
 
 ## Screenshots
 
-![Quick Dev ports panel](demo/ports-panel.png)
+![Quick Dev ports panel](docs/assets/screenshots/ports-panel.png)
 
-![Quick Dev multi-service project](demo/projects-panel.png)
+![Quick Dev multi-service project](docs/assets/screenshots/projects-panel.png)
 
-![Quick Dev auto-detect](demo/auto-detect.png)
+![Quick Dev auto-detect](docs/assets/screenshots/auto-detect.png)
 
-![Quick Dev tray menu](demo/tray-menu.png)
+![Quick Dev tray menu](docs/assets/screenshots/tray-menu.png)
 
 ---
 

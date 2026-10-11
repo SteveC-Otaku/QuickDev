@@ -30,6 +30,15 @@ src-tauri/gen/schemas
 
 # packaged site + installers (upload from here, do not commit binaries)
 release/dist/
+_tasks/
+assets/marketing/
+docs/history/
+demo/aac-tray-20261005-v4/
+demo/icon-lab-20261005/
+demo/icon-lab-20261005-v3/
+demo/project-flow-20261005-v12/
+demo/hairline-demo-2026-10-11/
+hairline-demo-2026-10-11/
 
 # Local repair snapshots and isolated diagnostic build cache
 docs/maintenance/2026-10-11-fixes/archive/

@@ -34,5 +34,9 @@ try {
   execFileSync(process.execPath,[path.join(root,'scripts/release.mjs'),'--website-only'],{cwd:root,stdio:'pipe'});
   assert.equal(fs.readFileSync(path.join(out,'github/latest.json'),'utf8'),githubManifest);
   assert.deepEqual(fs.readFileSync(path.join(out,'github',`QuickDev_${version}_x64-setup.exe`)),githubInstaller);
+  for(const arch of ['x64','arm64'])fs.writeFileSync(path.join(out,'github',`QuickDev_${version}_${arch}-setup.exe.sig`),'fixture-signature');
+  fs.renameSync(path.join(root,'src-tauri/target'),path.join(root,'src-tauri/retained-target-fixture'));
+  execFileSync(process.execPath,[path.join(root,'scripts/release.mjs'),'--website-only'],{cwd:root,stdio:'pipe'});
+  assert.equal(fs.readFileSync(path.join(out,'github/latest.json'),'utf8'),githubManifest);
   console.log('PASS version consistency; isolated dual-architecture packaging; repeat release preserves previous deliveries (fixture artifacts only)');
 } finally {fs.rmSync(root,{recursive:true,force:true});}
