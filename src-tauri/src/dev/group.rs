@@ -73,6 +73,15 @@ pub struct ServiceStatusEntry {
     pub readiness: String,
 }
 
+#[derive(Debug, PartialEq)]
+enum ServiceEntry { Window, Url(String) }
+fn entry_from_status(service: &ServiceStatusEntry) -> Result<ServiceEntry, String> {
+    if service.status != "running" { return Err(format!("{}尚未就绪，请查看日志或等待启动完成", service.name)); }
+    if service.readiness == "window" { return Ok(ServiceEntry::Window); }
+    service.open_url.clone().filter(|url| !url.trim().is_empty()).map(ServiceEntry::Url)
+        .ok_or_else(|| format!("{}尚未配置网页地址，请填写端口或网页地址", service.name))
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevStatusEntry {
@@ -194,18 +203,63 @@ impl DevManager {
         groups.revision = next_id();
     }
 
-    pub(super) fn update_project_cache(&self, project: Project) {
-        let mut groups = self.2.lock().unwrap();
-        groups
-            .projects
-            .insert(project.id.clone(), project.normalize());
-        groups.revision = next_id();
+    // Keep a printed URL pending until its listener belongs to this session's Job.
+    // OS queries run without either manager lock; generation checks reject stale results.
+    fn refresh_observed_addresses(&self) {
+        let pending: Vec<_> = self.0.lock().unwrap().sessions.iter().filter_map(|(key, session)| {
+            session.pending_url.as_ref().map(|url| (key.clone(), session.generation, session.job.clone(), url.clone()))
+        }).collect();
+        let mut changed = false;
+        let mut listeners = HashMap::new();
+        for (key, generation, job, url) in pending {
+            let Some(port) = address::port(&url) else { continue; };
+            let pids = listeners.entry(port).or_insert_with(|| crate::port::listening_pids(port).unwrap_or_default());
+            if !pids.iter().any(|pid| job.contains_pid(*pid)) { continue; }
+            let mut state = self.0.lock().unwrap();
+            if let Some(session) = state.sessions.get_mut(&key).filter(|s| s.generation == generation && s.pending_url.as_ref() == Some(&url)) {
+                changed |= session.observed_url.as_ref() != Some(&url);
+                session.observed_port = Some(port);
+                session.observed_url = Some(url);
+                session.pending_url = None;
+            }
+        }
+        if changed { self.2.lock().unwrap().revision = next_id(); }
+    }
+
+    fn service_entry(&self, project: &str, service: &str) -> Result<ServiceEntry, String> {
+        let status = self.statuses().into_iter().find(|p| p.id == project).ok_or("项目不存在，请刷新项目列表")?;
+        let status = status.services.iter().find(|s| s.id == service).ok_or("服务不存在，请检查启动方案配置")?;
+        entry_from_status(status)
+    }
+
+    pub fn open_service<R: Runtime>(&self, app: &AppHandle<R>, project: &str, service: &str) -> Result<(), String> {
+        match self.service_entry(project, service)? {
+            ServiceEntry::Window => self.focus_service(project, service),
+            ServiceEntry::Url(url) => {
+                use tauri_plugin_opener::OpenerExt;
+                app.opener().open_url(url, None::<&str>).map_err(|error| format!("打开地址失败：{error}"))
+            }
+        }
+    }
+
+    pub fn open_plan_entry<R: Runtime>(&self, app: &AppHandle<R>, project: &str, plan: Option<&str>) -> Result<(), String> {
+        let service = {
+            let groups = self.2.lock().unwrap();
+            let config = groups.projects.get(project).ok_or("项目不存在，请刷新项目列表")?;
+            let plan = if let Some(id) = plan.or(config.default_plan_id.as_deref()) {
+                config.launch_plans.iter().find(|p| p.id == id).ok_or("启动方案不存在")?
+            } else if let Some(first) = config.launch_plans.first() { first } else { return Ok(()); };
+            plan.open_service_id.clone()
+        };
+        if let Some(service) = service { self.open_service(app, project, &service)?; }
+        Ok(())
     }
 
     pub fn statuses(&self) -> Vec<DevStatusEntry> {
         self.status_snapshot().3
     }
     pub fn status_snapshot(&self) -> (u64, bool, bool, Vec<DevStatusEntry>) {
+        self.refresh_observed_addresses();
         let groups = self.2.lock().unwrap();
         let state = self.0.lock().unwrap();
         let mut out: Vec<_> = groups
@@ -244,7 +298,7 @@ impl DevManager {
                             pid: session.map(|s| s.pid),
                             session_id: session.map(|s| s.generation),
                             message,
-                            open_url: service.open_url.clone(),
+                            open_url: address::resolve(service.open_url.as_deref(), service.port, session.and_then(|s| s.observed_url.as_deref())),
                             readiness: if desktop_service(service) {
                                 "window"
                             } else if service.readiness == Readiness::Http {
@@ -556,6 +610,7 @@ impl DevManager {
             if cancel.load(Ordering::Acquire) {
                 return Err("启动已取消".into());
             }
+            self.refresh_observed_addresses();
             let (pid, job, observed_port, phase) = {
                 let state = self.0.lock().unwrap();
                 let Some(session) = state
@@ -587,7 +642,7 @@ impl DevManager {
             } else if service.readiness == Readiness::Process || desktop_service(service) {
                 None
             } else {
-                observed_port.or(service.port)
+                service.port.or(observed_port)
             };
             let owned_listener = port.is_some_and(|port| {
                 crate::port::listening_pids(port)
@@ -940,6 +995,17 @@ fn preflight(service: &ProjectService) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn opening_requires_ready_target_and_reports_missing_address() {
+        let mut status = ServiceStatusEntry { id:"web".into(), name:"网页".into(), status:"running".into(), pid:None, session_id:None, message:None, open_url:None, readiness:"process".into() };
+        assert!(entry_from_status(&status).unwrap_err().contains("尚未配置网页地址"));
+        status.open_url=Some("http://localhost:5174/admin".into());
+        assert_eq!(entry_from_status(&status).unwrap(), ServiceEntry::Url("http://localhost:5174/admin".into()));
+        status.readiness="window".into();
+        assert_eq!(entry_from_status(&status).unwrap(), ServiceEntry::Window);
+        status.status="starting".into();
+        assert!(entry_from_status(&status).unwrap_err().contains("尚未就绪"));
+    }
+    #[test]
     fn keys_round_trip_without_collisions() {
         for (project, service) in [("项目-前端", "api"), ("a-b", "c"), ("a", "b-c")] {
             assert_eq!(
@@ -1035,6 +1101,53 @@ mod tests {
                 let _ = std::fs::remove_dir_all(&self.root);
             }
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn runtime_log_addresses_keep_parallel_configuration_and_reject_foreign_sessions() {
+        let mut f=Fixture::new();
+        let mut manual=f.server("manual",0.0);
+        manual.open_url=Some(format!("http://127.0.0.1:{}/admin?mode=dev",manual.port.unwrap()));
+        let mut discovered=f.server("discovered",0.0);
+        let discovered_url=format!("http://127.0.0.1:{}/",discovered.port.unwrap());
+        discovered.port=None;discovered.open_url=None;discovered.readiness=Readiness::Process;discovered.health_url=None;
+        f.project.services=vec![manual.clone(),discovered];
+        let configured=serde_json::to_value(&f.project.services).unwrap();
+        assert!(f.manager.start(f.app.handle(),&f.project).ok);
+        let records:Vec<_>={
+            let state=f.manager.0.lock().unwrap();
+            f.project.services.iter().map(|service| {
+                let key=service_key(&f.project.id,&service.id);let session=&state.sessions[&key];
+                let url=if service.id=="manual" {format!("http://127.0.0.1:{}/",manual.port.unwrap())} else {discovered_url.clone()};
+                (key,session.pid,session.generation,url)
+            }).collect()
+        };
+        std::thread::scope(|scope| {
+            for (key,pid,generation,url) in &records {
+                let manager=f.manager.clone();let app=f.app.handle().clone();let project=f.project.clone();
+                scope.spawn(move || super::super::handle_log_line(&app,&manager,key,*pid,*generation,&project,&format!("Local: {url}"),false,false));
+            }
+        });
+        let deadline=Instant::now()+Duration::from_secs(15);
+        loop {
+            f.manager.statuses();
+            if f.manager.0.lock().unwrap().sessions.values().all(|session|session.observed_url.is_some()) {break;}
+            assert!(Instant::now()<deadline,"owned listener never validated");
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(f.manager.service_entry(&f.project.id,"manual").unwrap(),ServiceEntry::Url(manual.open_url.clone().unwrap()));
+        assert_eq!(f.manager.service_entry(&f.project.id,"discovered").unwrap(),ServiceEntry::Url(discovered_url.clone()));
+        assert_eq!(serde_json::to_value(&f.manager.2.lock().unwrap().projects[&f.project.id].services).unwrap(),configured);
+        let (key,pid,generation,_) = &records[1];
+        super::super::handle_log_line(f.app.handle(),&f.manager,key,*pid,generation+1,&f.project,"Local: http://localhost:65534/",false,false);
+        assert_eq!(f.manager.service_entry(&f.project.id,"discovered").unwrap(),ServiceEntry::Url(discovered_url.clone()));
+        let external=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        super::super::handle_log_line(f.app.handle(),&f.manager,key,*pid,*generation,&f.project,&format!("Local: http://127.0.0.1:{}/",external.local_addr().unwrap().port()),false,false);
+        assert_eq!(f.manager.service_entry(&f.project.id,"discovered").unwrap(),ServiceEntry::Url(discovered_url));
+        assert_eq!(serde_json::to_value(&f.manager.2.lock().unwrap().projects[&f.project.id].services).unwrap(),configured);
+        f.manager.stop(f.app.handle(),&f.project.id).unwrap();
+        assert!(f.manager.statuses()[0].services.iter().find(|s|s.id=="discovered").unwrap().open_url.is_none(),"runtime discovery must disappear when session stops");
     }
 
     #[cfg(windows)]

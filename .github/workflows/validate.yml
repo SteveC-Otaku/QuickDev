@@ -1,0 +1,24 @@
+name: Validate
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: cargo test --locked --lib --no-run
+        working-directory: src-tauri
+      - run: cargo test --locked --lib --manifest-path docs/maintenance/2026-10-11-fixes/detect-tests/Cargo.toml --target-dir src-tauri/target/maintenance-detect-tests
+      - run: powershell -ExecutionPolicy Bypass -File scripts/test-native.ps1

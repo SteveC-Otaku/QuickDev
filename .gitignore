@@ -30,3 +30,11 @@ src-tauri/gen/schemas
 
 # packaged site + installers (upload from here, do not commit binaries)
 release/dist/
+
+# Local repair snapshots and isolated diagnostic build cache
+docs/maintenance/2026-10-11-fixes/archive/
+docs/maintenance/2026-10-11-fixes/detect-tests/target/
+
+# Machine-local build evidence and relocation records
+docs/maintenance/2026-10-11-fixes/evidence/
+docs/maintenance/2026-10-11-fixes/relocation-*.json

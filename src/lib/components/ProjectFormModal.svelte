@@ -5,10 +5,10 @@
   import {dialogFocus} from '../focus';
   import {open as openDialog} from '@tauri-apps/plugin-dialog';
   import {detectProject,suggestProjects} from '../ipc';
-  import {projectServices,validateServices,validateLaunchPlans,generateLaunchPlans,automaticOpenService,isDesktopService,candidateKind,serviceKindLabels,projectPathName,commonProjectDirectory} from '../services';
+   import {projectServices,validateServices,validateLaunchPlans,generateLaunchPlans,resolvedOpenService,isDesktopService,candidateKind,serviceKindLabels,projectPathName,commonProjectDirectory,mergeDetectedServices,sameLaunchPlan} from '../services';
   import type {Project,ProjectService,LaunchPlan,CommandCandidate,PortSuggest} from '../types';
-  interface Props{open:boolean;editing?:Project|null;projectCount:number;groups?:string[];onclose?:()=>void;onsave?:(project:Project)=>void|Promise<void>;ondetect?:typeof detectProject;}
-  let {open,editing=null,projectCount,groups=[],onclose,onsave,ondetect=detectProject}:Props=$props();
+   interface Props{open:boolean;editing?:Project|null;focusServiceId?:string;projectCount:number;groups?:string[];onclose?:()=>void;onsave?:(project:Project)=>void|Promise<void>;ondetect?:typeof detectProject;}
+   let {open,editing=null,focusServiceId,projectCount,groups=[],onclose,onsave,ondetect=detectProject}:Props=$props();
   let name=$state(''),rootCwd=$state(''),group=$state('');
   let services=$state<ProjectService[]>([]),plans=$state<LaunchPlan[]>([]);
   let defaultPlanId=$state<string|undefined>(),selectedId=$state('');
@@ -16,6 +16,7 @@
   let error=$state(''),notice=$state(''),invalidServiceId=$state('');
   let candidates=$state<CommandCandidate[]>([]),suggests=$state<PortSuggest[]>([]);
   let pickerOpen=$state(false);
+   let detectedDuplicates=$state<string[]>([]);
   let workspace=$state<HTMLElement>(),nameInput=$state<HTMLInputElement>();
   let initializedOpen=false,detectVersion=0,sessionVersion=0,sequence=0,detectedCwd='';
   let starter=true;
@@ -31,7 +32,7 @@
   $effect(()=>{
     if(!open){initializedOpen=false;return;}if(initializedOpen)return;initializedOpen=true;
     untrack(()=>{
-      sessionVersion++;detectVersion++;saving=false;detecting=false;error='';notice='';invalidServiceId='';pickerOpen=false;candidates=[];detectedCwd='';suggests=[];
+       sessionVersion++;detectVersion++;saving=false;detecting=false;error='';notice='';invalidServiceId='';pickerOpen=false;candidates=[];detectedCwd='';suggests=[];detectedDuplicates=[];
       if(editing){
         name=editing.name;services=structuredClone($state.snapshot(projectServices(editing))).map(s=>({...s,kind:s.kind??candidateKind({command:s.command,cwd:s.cwd,label:s.name,reason:''})}));rootCwd=commonProjectDirectory(services)||editing.cwd;group=editing.group??'';
         plans=structuredClone($state.snapshot(editing.launchPlans??[]));
@@ -40,6 +41,7 @@
       }else if(draft){const saved=structuredClone($state.snapshot(draft));({name,rootCwd,group,services,plans,defaultPlanId,selectedId,starter}=saved);}
       else{name='';rootCwd='';group='';const service=blankService('default');services=[service];plans=[{id:'default-plan',name:'启动方案',serviceIds:[service.id],startMode:'parallel'}];defaultPlanId=selectedId=plans[0].id;starter=true;}
       if(!editing)void loadSuggests(sessionVersion);
+       if(editing&&focusServiceId)void focusError(focusServiceId);
     });
   });
   async function loadSuggests(session:number){suggesting=true;try{const result=await suggestProjects();if(session===sessionVersion&&open)suggests=result;}catch{if(session===sessionVersion)suggests=[];}finally{if(session===sessionVersion)suggesting=false;}}
@@ -48,7 +50,7 @@
   async function browse(){try{const path=await openDialog({directory:true,multiple:false,title:'选择项目目录'});if(typeof path==='string'&&open){setRoot(path);await runDetect(true);}}catch(e){error=String(e);}}
   function sameDirectory(a:string,b:string){const normalize=(path:string)=>path.split('\\').join('/').replace(/\/+$/,'').toLowerCase();return normalize(a)===normalize(b);}
   function candidateService(candidate:CommandCandidate){return services.find(s=>sameDirectory(s.cwd,candidate.cwd)&&s.command.trim()===candidate.command.trim());}
-  function addCandidate(candidate:CommandCandidate){const existing=candidateService(candidate);if(existing)return existing;const kind=candidateKind(candidate);const service:ProjectService={id:uid('service'),name:serviceKindLabels[kind],kind,cwd:candidate.cwd,command:candidate.command,port:kind==='desktop'?undefined:candidate.port,readiness:'auto',startupTimeoutSecs:kind==='desktop'?600:60};services=[...services,service];return service;}
+   function addCandidate(candidate:CommandCandidate){const existing=candidateService(candidate);if(existing)return existing;const kind=candidateKind(candidate);const service:ProjectService={id:uid('service'),name:serviceKindLabels[kind],kind,cwd:candidate.cwd,command:candidate.command,port:kind==='desktop'?undefined:candidate.port,openUrl:kind==='desktop'?undefined:candidate.openUrl,readiness:'auto',startupTimeoutSecs:kind==='desktop'?600:60};services=[...services,service];return service;}
   async function runDetect(automatic=false){
     if(saving||detecting)return;const path=rootCwd.trim();if(!path){if(!automatic)error='请先填写项目目录';return;}if(automatic&&detectedCwd===path)return;
     if(!name.trim())name=projectPathName(path);const version=++detectVersion;const before=JSON.stringify({services,plans});error='';notice='';detecting=true;
@@ -60,16 +62,17 @@
       if(!candidates.length){notice='没有识别到启动命令，可以在当前方案直接填写。';return;}
       if(JSON.stringify({services,plans})!==before){notice='识别完成，保留了你刚修改的配置；其他命令可从备用入口添加。';return;}
       const replaceStarter=starter&&services.every(s=>!s.command.trim());if(replaceStarter){services=[];plans=[];defaultPlanId=undefined;}
-      const seen=new Set<string>();const recommended:ProjectService[]=[];
-      for(const candidate of candidates){const key=`${candidate.cwd.split('\\').join('/').toLowerCase()}|${candidateKind(candidate)}`;if(seen.has(key))continue;seen.add(key);recommended.push(services.find(s=>sameDirectory(s.cwd,candidate.cwd)&&s.kind===candidateKind(candidate))??addCandidate(candidate));}
+       const merged=mergeDetectedServices(services,candidates,()=>uid('service'));services=merged.services;const recommended=merged.recommended;
       const generated=generateLaunchPlans(recommended);let count=0;
-      for(const plan of generated)if(!plans.some(p=>p.id===plan.id)){plans=[...plans,plan];count++;}
+       for(const plan of generated)if(!plans.some(p=>p.id===plan.id||sameLaunchPlan(p,plan))){plans=[...plans,plan];count++;}
+       detectedDuplicates=plans.filter((plan,index)=>plans.slice(0,index).some(other=>sameLaunchPlan(other,plan))).map(p=>p.id);
       defaultPlanId??=plans[0]?.id;if(!plans.some(p=>p.id===selectedId))selectedId=defaultPlanId??plans[0]?.id??'';
-      starter=false;notice=count?`识别完成 · 已整理 ${plans.length} 个方案，请选择左侧方案检查命令。`:'识别完成 · 推荐方案已存在，保留已修改的命令和自定义方案。';
+       starter=false;const warnings=[...new Set([...(result.warnings??[]),...candidates.map(c=>c.warning).filter(Boolean)])];notice=(count?`识别完成 · 已整理 ${plans.length} 个方案，请选择左侧方案检查命令。`:'识别完成 · 已补齐可识别的空值，保留已有命令、手动参数和自定义方案。')+(warnings.length?` ${warnings.join('；')}`:'');
     }catch(e){if(version===detectVersion&&open)error=String(e);}finally{if(version===detectVersion)detecting=false;}
   }
   function planSummary(plan:LaunchPlan){return plan.serviceIds.map(id=>{const service=services.find(s=>s.id===id);return service?.name.trim()||serviceKindLabels[service?.kind??'unknown'];}).join(' + ')||'尚未配置命令';}
-  function entryHint(plan:LaunchPlan){const id=automaticOpenService(plan,services);const service=services.find(s=>s.id===id);return !service?'后台运行，不打开窗口':isDesktopService(service)?'就绪后自动显示 App 窗口':'就绪后自动打开网页';}
+   function entryHint(plan:LaunchPlan){const id=resolvedOpenService(plan,services);const service=services.find(s=>s.id===id);return !service?'后台运行，不打开窗口':isDesktopService(service)?'就绪后自动显示 App 窗口':!service.openUrl?.trim()&&!service.port?'尚未识别网页地址，请填写前端端口或网页地址':'启动完成后尝试打开网页；进程运行不代表网页已就绪';}
+   function removeDuplicate(id:string){const plan=plans.find(p=>p.id===id);if(!plan||!plans.some(p=>p.id!==id&&sameLaunchPlan(p,plan)))return;plans=plans.filter(p=>p.id!==id);detectedDuplicates=detectedDuplicates.filter(value=>value!==id);if(defaultPlanId===id)defaultPlanId=plans.find(p=>sameLaunchPlan(p,plan))?.id;if(selectedId===id)selectedId=defaultPlanId??plans[0]?.id??'';notice='已从编辑草稿移除重复方案，共用服务保留；点击保存后生效。';}
   async function selectPlan(id:string,focus=false){selectedId=id;pickerOpen=false;await tick();workspace?.scrollTo({top:0,behavior:'instant'});if(focus){nameInput?.focus();nameInput?.select();}}
   async function addPlan(){starter=false;const service=blankService();services=[...services,service];const plan:LaunchPlan={id:uid('plan'),name:`自定义方案 ${plans.filter(p=>p.id.startsWith('plan-')).length+1}`,serviceIds:[service.id],startMode:'parallel'};plans=[...plans,plan];defaultPlanId??=plan.id;notice='新方案已创建，可以直接填写下面的启动命令。';await selectPlan(plan.id,true);}
   async function addCommand(){if(!selected)return;starter=false;const service=blankService();services=[...services,service];selected.serviceIds=[...selected.serviceIds,service.id];await tick();const input=workspace?.querySelector<HTMLInputElement>(`[data-command-id="${service.id}"]`);input?.scrollIntoView({block:'center',behavior:'smooth'});input?.focus({preventScroll:true});notice='已新增命令，执行目录默认使用项目目录。';}
@@ -77,11 +80,11 @@
   async function deletePlan(){if(!selected)return;const old=selected;plans=plans.filter(p=>p.id!==old.id);services=services.filter(s=>!old.serviceIds.includes(s.id)||plans.some(p=>p.serviceIds.includes(s.id)));if(defaultPlanId===old.id)defaultPlanId=plans[0]?.id;await selectPlan(defaultPlanId??plans[0]?.id??'');notice='方案已移除，共用服务已保留。';}
   function joinService(id:string){if(!selected||selected.serviceIds.includes(id))return;selected.serviceIds=[...selected.serviceIds,id];pickerOpen=false;notice='已复用已有服务；修改命令会同步影响使用它的方案。';}
   function joinCandidate(candidate:CommandCandidate){if(!selected)return;const service=addCandidate(candidate);joinService(service.id);}
-  async function focusError(serviceId?:string,planId?:string){invalidServiceId=serviceId??'';const owner=planId??plans.find(p=>p.serviceIds.includes(serviceId??''))?.id;if(owner)await selectPlan(owner);await tick();if(serviceId)workspace?.querySelector<HTMLElement>(`[data-command-id="${serviceId}"]`)?.focus();}
+   async function focusError(serviceId?:string,planId?:string){invalidServiceId=serviceId??'';const owner=planId??plans.find(p=>p.serviceIds.includes(serviceId??''))?.id;if(owner)await selectPlan(owner);await tick();if(serviceId){const target=workspace?.querySelector<HTMLElement>(`[${serviceId===focusServiceId?'data-address-id':'data-command-id'}="${serviceId}"]`);target?.scrollIntoView({block:'center'});target?.focus();}}
   async function submit(e:Event){
     e.preventDefault();if(saving||detecting)return;error='';invalidServiceId='';name=name.trim()||projectPathName(rootCwd);if(!rootCwd.trim()||!name){error='请填写项目目录';return;}
     const cleaned=services.map(s=>({...s,name:s.name.trim(),cwd:s.cwd.trim(),command:s.command.trim(),openUrl:s.openUrl?.trim()||undefined,healthUrl:s.healthUrl?.trim()||undefined}));
-    const savedPlans=plans.map(p=>({...p,name:p.name.trim(),openServiceId:automaticOpenService(p,cleaned)}));
+    const savedPlans=plans.map(p=>({...p,name:p.name.trim(),openServiceId:resolvedOpenService(p,cleaned)}));
     const serviceError=validateServices(cleaned,savedPlans);if(serviceError){const bad=cleaned.find(s=>validateServices([s]));error=bad?`${bad.name||'任务'}：${!bad.command?'请填写启动命令':!bad.cwd?'请填写执行目录':validateServices([bad])}`:serviceError;await focusError(bad?.id);return;}
     const planError=validateLaunchPlans(savedPlans,cleaned,defaultPlanId);if(planError){error=planError;const bad=savedPlans.find(p=>validateLaunchPlans([p],cleaned));await focusError(undefined,bad?.id);return;}
     if(!savedPlans.length||!cleaned.length){error='至少添加一个启动方案和命令';return;}
@@ -109,6 +112,7 @@
             <div class="group-row"><div class="group-choices" role="group" aria-label="选择分组"><button type="button" class="group-option" aria-pressed={!group.trim()} onclick={()=>group=''}>未分组</button>{#each groupChoices as option}<button type="button" class="group-option" aria-pressed={group.trim()===option} onclick={()=>group=option}>{option}</button>{/each}</div><label class="custom-group"><span>自定义分组</span><input class="qd-input" bind:value={group} placeholder="输入名称，或选择左侧分组"/></label></div>
           </section>
           <div class="recognition-status" role="status">{#if detecting}<span class="qd-spinner"></span>正在读取项目配置并整理方案…{:else if notice}<ActionIcon name="check" size={14}/>{notice}{:else}在当前方案直接填写命令，或自动识别项目入口。{/if}</div>
+           {#if detectedDuplicates.length}<section class="service-picker" aria-label="重复方案预览"><p>以下方案的服务顺序、启动方式和打开入口与其他方案相同。只在点击移除并保存后删除，共用服务会保留。</p>{#each detectedDuplicates as id}<button type="button" class="qd-btn qd-btn-secondary qd-btn-sm" onclick={()=>removeDuplicate(id)}>移除重复方案：{plans.find(p=>p.id===id)?.name}</button>{/each}</section>{/if}
           {#if selected}
           <section class="plan-content" aria-label={`${selected.name || '未命名'} 方案编辑`}>
             <div class="plan-heading"><input class="qd-input plan-name" bind:this={nameInput} aria-label="当前方案名称" bind:value={selected.name} placeholder="官网 / 桌面 App / 自定义"/>{#if defaultPlanId===selected.id}<span class="default-tag">默认方案</span>{:else}<button type="button" class="qd-btn qd-btn-secondary qd-btn-sm" onclick={()=>{defaultPlanId=selected?.id;notice='已设为默认方案，项目主启动按钮会运行它。';}}>设为默认</button>{/if}<button type="button" class="qd-btn qd-btn-ghost qd-btn-sm" aria-label={`移除方案 ${selected.name}`} onclick={deletePlan}><ActionIcon name="close" size={14}/></button></div>

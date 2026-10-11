@@ -15,7 +15,7 @@ import {
   removeProject,
   startDev,
   startService,
-  focusService,
+  openServiceEntry,
   stopService,
   stopAllDevs,
   stopDev,
@@ -104,7 +104,8 @@ class AppStore {
   activeTab = $state<TabId>("ports");
   formOpen = $state(false);
   editingProject = $state<Project | null>(null);
-  notice = $state<{ text: string; kind: "error" | "success" } | null>(null);
+  editingServiceId = $state<string | undefined>();
+  notice = $state<{ text: string; kind: "error" | "success"; configuration?: {projectId:string;serviceId:string} } | null>(null);
   confirmation = $state<{ title: string; text: string; action: string } | null>(null);
   stoppingIds = $state<string[]>([]);
   stopAllBusy = $state(false);
@@ -181,9 +182,9 @@ class AppStore {
     return items;
   }
 
-  notify(text: string, kind: "error" | "success" = "error") {
+  notify(text: string, kind: "error" | "success" = "error", configuration?: {projectId:string;serviceId:string}) {
     if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
-    this.notice = { text, kind };
+    this.notice = { text, kind, configuration };
     if (kind === "success") this.#noticeTimer = setTimeout(() => this.notice = null, 4000);
   }
 
@@ -492,14 +493,15 @@ class AppStore {
 
   async openService(projectId: string, serviceId: string) {
     const project = this.projects.find(p => p.id === projectId);
-    if (project?.serviceStatuses?.find(s => s.id === serviceId)?.status !== "running") return;
+    if (!project) { this.notify("项目不存在，请刷新项目列表"); return; }
     const service = projectServices(project).find(s => s.id === serviceId);
-    if (service && isDesktopService(service)) {
-      try { await focusService(projectId, serviceId); } catch (e) { this.notify(String(e)); }
-      return;
+    if (!service) { this.notify("服务不存在，请检查启动方案配置"); return; }
+    // The backend rechecks the current session and resolves the same target as the tray.
+    try { await openServiceEntry(projectId, serviceId); }
+    catch (e) {
+      const message=String(e);
+      this.notify(message.includes('尚未配置网页地址')?`${message}。运行中的项目需先停止再编辑。`:message,'error',{projectId,serviceId});
     }
-    const url = project.serviceStatuses?.find(s => s.id === serviceId)?.openUrl ?? service?.openUrl ?? (service?.port ? `http://localhost:${service.port}` : undefined);
-    if (url) await this.openAddress(url); else this.notify("此服务尚未设置打开地址");
   }
 
   async openPlanEntry(projectId:string,planId?:string) {
@@ -514,11 +516,7 @@ class AppStore {
   }
 
   async handleOpen(project: Project) {
-    const service = projectServices(project)[0];
-    if (isDesktopService(service)) { await this.openService(project.id, service.id); return; }
-    const url = project.openUrl ?? (project.port ? `http://localhost:${project.port}` : null);
-    if (url) await this.openAddress(url);
-    else this.notify("请先为项目设置打开地址或端口");
+    await this.openService(project.id, projectServices(project)[0].id);
   }
 
   async handleOpenPort(port: number) {
@@ -534,13 +532,28 @@ class AppStore {
 
   openAddForm() {
     this.editingProject = null;
+    this.editingServiceId = undefined;
     this.formOpen = true;
     this.activeTab = "projects";
   }
 
-  openEditForm(project: Project) {
+  openEditForm(project: Project, serviceId?: string) {
     this.editingProject = project;
+    this.editingServiceId = serviceId;
     this.formOpen = true;
+  }
+
+  async locateServiceConfiguration(projectId:string, serviceId:string) {
+    const project=this.projects.find(p=>p.id===projectId);
+    if(!project){this.notify("项目不存在，请刷新项目列表");return;}
+    this.activeTab='projects';
+    if(project.operation || project.serviceStatuses?.some(s=>['running','starting','stopping'].includes(s.status)) || ['running','partial','starting','stopping','rollingBack'].includes(project.status??'')) {
+      await this.openServiceLogs(projectId,serviceId);
+      this.notify("已定位服务日志。请先停止项目，再点击“定位配置”填写网页地址。",'error',{projectId,serviceId});
+      return;
+    }
+    this.notice=null;
+    this.openEditForm(project,serviceId);
   }
 
   async handleSaveProject(project: Project) {

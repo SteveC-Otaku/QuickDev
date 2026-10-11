@@ -5,7 +5,7 @@
   import type {ProjectService} from '../types';
   let {service=$bindable(),index=0,sharedCount=1,invalid=false,onremove}:{service:ProjectService;index?:number;sharedCount?:number;invalid?:boolean;onremove?:()=>void}=$props();
   let advanced=$state(false);
-  $effect(()=>{if(invalid&&service.command.trim())advanced=true;});
+   $effect(()=>{if(invalid)advanced=true;});
   function portInput(e:Event){const value=(e.currentTarget as HTMLInputElement).value.trim();service.port=value?Number(value):undefined;}
   function classify(){if(!service.kind||service.kind==='unknown'){const kind=candidateKind({command:service.command,cwd:service.cwd,label:'',reason:''});if(kind!=='unknown'){service.kind=kind;if(kind==='desktop'&&(service.startupTimeoutSecs??60)===60)service.startupTimeoutSecs=600;}}}
 </script>
@@ -21,7 +21,7 @@
     <summary><ActionIcon name={advanced?'up':'down'} size={14}/>服务参数 · 目录、名称、类型与等待判断</summary>
     {#if advanced}
       <p class="hint">这里调整上面这条命令的执行参数。{#if sharedCount>1}此服务由多个方案共用，修改后在这些方案中同步生效。{/if}</p>
-      <div class="advanced-fields"><label>执行目录<input class="qd-input font-mono" bind:value={service.cwd} placeholder="D:\Projects\my-app\web"/></label><label>网页地址（选填）<input class="qd-input font-mono" bind:value={service.openUrl} placeholder="留空根据端口自动打开"/></label></div>
+       <div class="advanced-fields"><label>执行目录<input class="qd-input font-mono" bind:value={service.cwd} placeholder="D:\Projects\my-app\web"/></label><label>网页地址（选填）<input class="qd-input font-mono" data-address-id={service.id} bind:value={service.openUrl} placeholder="留空根据端口自动打开"/></label></div>
       <ServiceEditor bind:service optionsOnly/>
     {/if}
   </details>

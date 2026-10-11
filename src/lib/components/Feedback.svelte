@@ -16,6 +16,7 @@
 {#if app.notice}
   <aside class="qd-notice" class:qd-notice-error={app.notice.kind === "error"} role={app.notice.kind === "error" ? "alert" : "status"}>
     <span>{app.notice.text}</span>
+    {#if app.notice.configuration}<button class="qd-btn qd-btn-secondary qd-btn-sm" onclick={()=>{const target=app.notice?.configuration;if(target)void app.locateServiceConfiguration(target.projectId,target.serviceId);}}>定位配置</button>{/if}
     <button class="qd-btn-ghost" aria-label="关闭提示" onclick={() => app.notice = null}><ActionIcon name="close" size={16} /></button>
   </aside>
 {/if}

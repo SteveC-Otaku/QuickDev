@@ -1,7 +1,7 @@
 mod gauge;
 mod menu_icons;
 use crate::config::store::{get_projects, get_settings, Project};
-use crate::dev::{DevManager, DevStatusEntry};
+use crate::dev::{desktop_service, DevManager, DevStatusEntry};
 use gauge::Visual;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -274,7 +274,7 @@ fn build_menu<R: Runtime>(
         for service in &services {
             let state = status.and_then(|p| p.services.iter().find(|s| s.id == service.id));
             let desktop = desktop_service(service);
-            if desktop || service.open_url.is_some() || service.port.is_some() {
+            if open_menu_available(service, state.and_then(|s| s.open_url.as_deref())) {
                 sub.append(&item(app, format!("open|{}|{}",project.id,service.id),
                     &format!("{} · {}",if desktop { "显示 App 窗口" } else { "打开网页" }, service.name),
                     state.is_some_and(|s| s.status == "running") && !retaining_all)?)?;
@@ -356,7 +356,7 @@ fn build_menu<R: Runtime>(
                 svc_live && busy.is_none() && !stopping_all && !retaining_all,
             )?)?;
             let desktop = desktop_service(&service);
-            if desktop || service.open_url.is_some() || service.port.is_some() {
+            if open_menu_available(&service, state.and_then(|s| s.open_url.as_deref())) {
                 svc.append(&item(
                     app,
                     format!("open|{}|{}", project.id, service.id),
@@ -414,10 +414,8 @@ fn menu_name(name: &str) -> String {
     let short: String = name.chars().take(48).collect();
     format!("{}{}",short.replace('&',"&&"),if name.chars().count() > 48 { "…" } else { "" })
 }
-fn desktop_service(service: &crate::config::store::ProjectService) -> bool {
-    use crate::config::store::Readiness;
-    service.readiness == Readiness::Window || (service.readiness == Readiness::Auto
-        && crate::process::window::is_desktop_command(&service.command))
+fn open_menu_available(service: &crate::config::store::ProjectService, runtime_url: Option<&str>) -> bool {
+    desktop_service(service) || runtime_url.is_some() || service.open_url.is_some() || service.port.is_some()
 }
 fn label(status: &str) -> &str {
     match status {
@@ -482,37 +480,16 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
                 return;
             }
             if action == "open" {
-                let desktop = app.state::<DevManager>().statuses().iter().any(|p| p.id == project_id && p.services.iter().any(|s| Some(&s.id) == service_id.as_ref() && s.readiness == "window"));
-                if desktop {
-                    if let Some(service) = service_id {
-                        if let Err(error) = app.state::<DevManager>().focus_service(&project_id, &service) { let _ = app.emit("operation-error", error); }
+                let handle = app.clone();
+                let manager = app.state::<DevManager>().inner().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let result = service_id.as_deref().ok_or_else(|| "服务不存在，请检查启动方案配置".to_string())
+                        .and_then(|service| manager.open_service(&handle, &project_id, service));
+                    if let Err(error) = result {
+                        show_main_window(&handle);
+                        let _ = handle.emit("operation-error", error);
                     }
-                    return;
-                }
-                let ready = app.state::<DevManager>().statuses().iter().any(|p| {
-                    p.id == project_id
-                        && p.services
-                            .iter()
-                            .any(|s| Some(&s.id) == service_id.as_ref() && s.status == "running")
                 });
-                if ready {
-                    if let Ok(projects) = get_projects() {
-                        if let Some(service) =
-                            projects.iter().find(|p| p.id == project_id).and_then(|p| {
-                                p.effective_services()
-                                    .into_iter()
-                                    .find(|s| Some(&s.id) == service_id.as_ref())
-                            })
-                        {
-                            if let Some(url) = service.open_url.or_else(|| {
-                                service.port.map(|port| format!("http://localhost:{port}"))
-                            }) {
-                                use tauri_plugin_opener::OpenerExt;
-                                let _ = app.opener().open_url(url, None::<&str>);
-                            }
-                        }
-                    }
-                }
                 return;
             }
             let handle = app.clone();
@@ -539,10 +516,10 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
                                     serde_json::json!({"id":project.id,"result":result}),
                                 );
                             } else if action == "plan_start" || service_id.is_none() {
-                                let plan_id=if action=="plan_start" {service_id.as_deref()} else {project.default_plan_id.as_deref()};
-                                if let Some(service)=project.launch_plans.iter().find(|p|Some(p.id.as_str())==plan_id).and_then(|p|p.open_service_id.as_ref()).and_then(|id|project.effective_services().into_iter().find(|s|&s.id==id)) {
-                                    if service.readiness==crate::config::store::Readiness::Window || service.readiness==crate::config::store::Readiness::Auto && (service.kind.as_deref()==Some("desktop") || crate::process::window::is_desktop_command(&service.command)) { if let Err(error)=manager.focus_service(&project.id,&service.id) {let _=handle.emit("operation-error",error);} }
-                                    else if let Some(url)=service.open_url.or_else(||service.port.map(|p|format!("http://localhost:{p}"))) { use tauri_plugin_opener::OpenerExt; let _=handle.opener().open_url(url,None::<&str>); }
+                                let plan_id = if action == "plan_start" { service_id.as_deref() } else { None };
+                                if let Err(error) = manager.open_plan_entry(&handle, &project.id, plan_id) {
+                                    show_main_window(&handle);
+                                    let _ = handle.emit("operation-error", error);
                                 }
                             }
                         }
@@ -645,6 +622,16 @@ fn system_animation() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn runtime_only_web_entry_and_explicit_desktop_kind_are_available_in_tray() {
+        let project: Project=serde_json::from_str(r#"{"id":"test","name":"测试","cwd":"D:/test","command":"custom launch"}"#).unwrap();
+        let mut service=project.effective_services().remove(0);
+        assert!(!open_menu_available(&service,None));
+        assert!(open_menu_available(&service,Some("http://127.0.0.1:5174/")));
+        service.kind=Some("desktop".into());
+        assert!(desktop_service(&service));
+        assert!(open_menu_available(&service,None));
+    }
     #[test]
     fn warning_wins_over_busy_and_process_running_is_not_business_ready() {
         let manager = DevManager::new();

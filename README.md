@@ -15,7 +15,7 @@
 
 ---
 
-当前版本 **v1.0.0**。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
+源码版本 **v1.0.1**（2026-10-11 修复版）。公开下载目前仍为 v1.0.0，1.0.1 尚未创建 GitHub Release。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
 
 官网：[quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
@@ -33,6 +33,16 @@
 装好后打开 **设置 → 关于与更新**：启动时会自动检查更新，也可手动检查、一键升级，并查看更新日志。
 
 > Windows 若提示「未知发布者」，属未代码签名，选择仍要运行即可。
+
+
+## v1.0.1 更新
+
+- 等价推荐方案去重，重扫保留手动配置和自定义方案；已有重复方案需主动移除并保存。
+- 识别嵌套前后端与 workspace，静态读取 Vite 地址；扫描有深度、目录数量和目录项预算。
+- 运行时地址须属于本次启动的进程；日志不会覆盖保存的地址。主窗口与托盘共用打开入口，保留指定目标并反馈失败。
+- 未知端口仍使用 500ms 进程存活判断；尚未进行桌面、托盘与系统浏览器点击验收。
+
+详见 [更新公告](docs/releases/1.0.1.md) 与 [目录及验证入口](docs/README.md)。
 
 ## 能干什么
 
@@ -63,7 +73,7 @@
 
 ## 开发
 
-**环境：** Node.js 18+、Rust（`rustup`）、Windows 建议安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（含「使用 C++ 的桌面开发」）。打 ARM64 包还需 ARM64 工具链。
+**环境：** Node.js 22 LTS、Rust（`rustup`）、Windows 建议安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（含「使用 C++ 的桌面开发」）。打 ARM64 包还需 ARM64 工具链。
 
 ```bash
 npm install
@@ -84,11 +94,13 @@ npm run release
 
 ```text
 src-tauri/target/<triple>/release/bundle/nsis/
-release/dist/oss/          # 上传 OSS 的官网 + 安装包
-release/dist/github/       # 挂到 GitHub Release
+release/dist/v<version>/oss/          # 上传 OSS 的官网 + 安装包
+release/dist/v<version>/github/       # 挂到 GitHub Release
 ```
 
-未配置代码签名时会自动跳过（见 `scripts/sign-windows.ps1`）。
+Windows 代码签名未配置时会跳过（见 `scripts/sign-windows.ps1`）；双架构发布仍要求独立的 updater 私钥、两个架构安装包及其签名。当前仅验证了未签名 x64 修复包，未生成 ARM64 或更新清单。
+
+验证：`npm run check`、`npm test`。原生测试与隔离检测见 [维护目录](docs/maintenance/2026-10-11-fixes/README.md)。
 
 ## 配置目录
 

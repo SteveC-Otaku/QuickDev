@@ -1,6 +1,6 @@
 {
   "name": "quick-dev",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "即栈 Quick Dev — Windows 多项目 dev 管理托盘工具",
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "ui:audit": "vite --config scripts/ui-audit.config.mjs --open /scripts/ui-audit.html",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "test": "node scripts/test-launch-plans.mjs && node scripts/test-project-roundtrip.mjs && node scripts/test-store.mjs && node scripts/test-release.mjs"
   },
   "license": "MIT",
   "dependencies": {

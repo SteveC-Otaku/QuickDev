@@ -1,6 +1,6 @@
 [package]
 name = "quick-dev"
-version = "1.0.0"
+version = "1.0.1"
 description = "即栈 Quick Dev"
 authors = ["SteveC-Otaku"]
 edition = "2021"

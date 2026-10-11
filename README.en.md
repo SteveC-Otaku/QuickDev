@@ -15,7 +15,7 @@
 
 ---
 
-Current version **v1.0.0**. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
+Source version **v1.0.1** (2026-10-11 bugfix). Public downloads remain v1.0.0 until a 1.0.1 GitHub Release is published. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
 
 Site: [quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
@@ -33,6 +33,16 @@ Not sure which one? Settings → System → About. If **System type** says ARM, 
 After install, open **Settings → About & updates**: the app checks for updates on launch, or you can check manually, upgrade in one click, and read the changelog.
 
 > Windows may warn about an unknown publisher (unsigned build). Choose “Run anyway”.
+
+
+## Changes in v1.0.1
+
+- Deduplicates equivalent recommended plans while preserving manual configuration and custom plans on rescan. Existing duplicates require explicit removal and save.
+- Finds nested frontend/backend and workspace services; reads literal Vite addresses with bounded scanning.
+- Verifies runtime listener ownership without rewriting saved configuration; shares opening behavior between the main window and tray and preserves the selected target.
+- Unknown ports still use the 500ms process-alive heuristic. Desktop, tray and browser click flows have not been manually verified.
+
+See [release notes](docs/releases/1.0.1.md) and [layout and verification](docs/README.md) (Chinese).
 
 ## Features
 
@@ -63,7 +73,7 @@ After install, open **Settings → About & updates**: the app checks for updates
 
 ## Development
 
-**Requires:** Node.js 18+, Rust (`rustup`), and on Windows preferably [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the C++ desktop workload. ARM64 installers also need the ARM64 MSVC toolchain.
+**Requires:** Node.js 22 LTS, Rust (`rustup`), and on Windows preferably [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the C++ desktop workload. ARM64 installers also need the ARM64 MSVC toolchain.
 
 ```bash
 npm install
@@ -84,11 +94,13 @@ Output:
 
 ```text
 src-tauri/target/<triple>/release/bundle/nsis/
-release/dist/oss/          # website + installers for OSS
-release/dist/github/       # attach to the GitHub Release
+release/dist/v<version>/oss/          # website + installers for OSS
+release/dist/v<version>/github/       # attach to the GitHub Release
 ```
 
-Code signing is skipped when no certificate is configured (`scripts/sign-windows.ps1`).
+Windows code signing can be skipped (`scripts/sign-windows.ps1`), but the dual-architecture release requires an updater signing key and both signed installer artifacts. Only an unsigned x64 bugfix installer has been verified; no ARM64 installer or update manifest has been generated.
+
+Validation: `npm run check`, `npm test`. Native and isolated detection test instructions are in the [maintenance guide](docs/maintenance/2026-10-11-fixes/README.md).
 
 ## Config location
 

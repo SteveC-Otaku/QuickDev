@@ -83,11 +83,14 @@ export interface CommandCandidate {
   cwd: string;
   command: string;
   port?: number;
+  openUrl?: string;
+  warning?: string;
   reason: string;
   kind?: "frontend" | "backend" | "desktop" | "unknown";
 }
 
 export interface DetectResult {
+  warnings?: string[];
   cwd?: string;
   candidates?: CommandCandidate[];
   name?: string;

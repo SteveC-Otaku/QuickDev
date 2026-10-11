@@ -1,11 +1,12 @@
 use crate::config::detect::resolve_project_root;
 use crate::config::store::Project;
-use crate::config::store::{get_projects, get_settings, save_project};
+use crate::config::store::{get_projects, get_settings};
+mod address;
 mod group;
 use crate::port::{find_listening_port, PortEntry};
 use crate::process::job::ProcessJob;
 use crate::process::kill_process_tree;
-pub use group::DevStatusEntry;
+pub use group::{desktop_service, DevStatusEntry};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
@@ -15,7 +16,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 
 const LOG_CAP: usize = 2000;
 // Process-only readiness reports a live process, not business readiness.
@@ -50,6 +51,8 @@ struct DevSession {
     output: Arc<crate::process::drain::RetainedOutput>,
     generation: u64,
     observed_port: Option<u16>,
+    observed_url: Option<String>,
+    pending_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -215,6 +218,8 @@ impl DevManager {
                     output,
                     generation,
                     observed_port: None,
+                    observed_url: None,
+                    pending_url: None,
                 },
             );
         }
@@ -575,7 +580,7 @@ fn handle_log_line<R: Runtime>(
     id: &str,
     pid: u32,
     generation: u64,
-    project: &Project,
+    _project: &Project,
     line: &str,
     is_stderr: bool,
     write_logs: bool,
@@ -597,34 +602,15 @@ fn handle_log_line<R: Runtime>(
     let _ = is_stderr;
     // Logs can reveal the actual port when a dev server chooses a fallback.
     // A printed URL alone is not readiness evidence: its owner must join this Job.
-    if let Some(port) = parse_local_url(line).and_then(|url| port_from_url(&url)) {
-        let job = manager
-            .0
-            .lock()
-            .unwrap()
-            .sessions
-            .get(id)
-            .filter(|s| s.pid == pid)
-            .map(|s| s.job.clone());
-        if let Some(job) = job {
-            if find_listening_port(port, &HashSet::new())
-                .ok()
-                .flatten()
-                .is_some_and(|owner| job.contains_pid(owner.pid))
-            {
-                if let Some(session) = manager
-                    .0
-                    .lock()
-                    .unwrap()
-                    .sessions
-                    .get_mut(id)
-                    .filter(|s| s.generation == generation)
-                {
-                    session.observed_port = Some(port);
-                }
-                maybe_update_from_log(app, project, line);
+    if let Some(url) = address::parse_log_url(line) {
+        {
+            let mut state = manager.0.lock().unwrap();
+            if let Some(session) = state.sessions.get_mut(id).filter(|s| s.pid == pid && s.generation == generation) {
+                session.pending_url = Some(url);
             }
         }
+        manager.notify_status(app, &group::split_key(id).0);
+        crate::tray::refresh(app);
     }
     let _ = app.emit(
         "dev-log",
@@ -706,61 +692,6 @@ fn append_log_file(id: &str, line: &str) -> Result<(), String> {
         .open(&path)
         .map_err(|e| e.to_string())?;
     writeln!(file, "{line}").map_err(|e| e.to_string())
-}
-
-fn maybe_update_from_log<R: Runtime>(app: &AppHandle<R>, project: &Project, line: &str) {
-    let Some(url) = parse_local_url(line) else {
-        return;
-    };
-    let Ok(mut projects) = get_projects() else {
-        return;
-    };
-    let (parent_id, service_id) = group::split_key(&project.id);
-    let Some(p) = projects.iter_mut().find(|p| p.id == parent_id) else {
-        return;
-    };
-    let Some(service) = p.services.iter_mut().find(|s| s.id == service_id) else {
-        return;
-    };
-    if service.open_url.as_deref() == Some(url.as_str()) {
-        return;
-    }
-    service.open_url = Some(url.clone());
-    if let Some(port) = port_from_url(&url) {
-        service.port = Some(port);
-    }
-    let updated = p.clone();
-    if save_project(updated.clone()).is_ok() {
-        let manager = app.state::<DevManager>();
-        manager.update_project_cache(updated);
-        let _ = app.emit("trigger-refresh", ());
-    }
-}
-
-fn parse_local_url(line: &str) -> Option<String> {
-    let lower = line.to_lowercase();
-    if !lower.contains("local:") {
-        return None;
-    }
-    let start = lower.find("http://").or_else(|| lower.find("https://"))?;
-    let raw: String = line[start..]
-        .chars()
-        .take_while(|c| !c.is_whitespace())
-        .collect();
-    let url = raw
-        .trim_end_matches(|c: char| c == ')' || c == ']' || c == ',')
-        .to_string();
-    if url.starts_with("http://") || url.starts_with("https://") {
-        Some(url)
-    } else {
-        None
-    }
-}
-
-fn port_from_url(url: &str) -> Option<u16> {
-    let after_scheme = url.split("://").nth(1)?;
-    let host_port = after_scheme.split('/').next()?;
-    host_port.rsplit(':').next()?.parse().ok()
 }
 
 fn cleanup_session<R: Runtime>(

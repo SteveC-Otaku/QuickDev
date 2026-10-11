@@ -22,7 +22,44 @@ export function generateLaunchPlans(services: ProjectService[]): LaunchPlan[] {
   const managedFrontend=desktop.some(app=>/\btauri\b/i.test(app.command) && front.some(web=>sameDirectory(app.cwd,web.cwd)));
   const ports=services.map(s=>s.port).filter(p=>p!=null);
   if (services.length > 1 && !managedFrontend && new Set(ports).size===ports.length) plans.push({id:'all',name:'全部',serviceIds:[...back,...front,...desktop,...services.filter(s=>kind(s)==='unknown')].map(s=>s.id),startMode:'sequential',openServiceId:front[0]?.id ?? desktop[0]?.id});
-  return plans;
+  return plans.filter((plan,index)=>!plans.slice(0,index).some(other=>sameLaunchPlan(other,plan)));
+}
+export function sameLaunchPlan(a: LaunchPlan, b: LaunchPlan): boolean {
+  return a.startMode === b.startMode && a.openServiceId === b.openServiceId
+    && a.serviceIds.length === b.serviceIds.length && a.serviceIds.every((id,index)=>id===b.serviceIds[index]);
+}
+
+// Re-scan supplies missing data only. Existing commands and explicit overrides win.
+export function fillDetectedService(service: ProjectService, candidate: CommandCandidate): ProjectService {
+  const port = service.port ?? candidate.port ?? undefined;
+  const address = candidate.openUrl && (!service.port || service.port === candidate.port) ? candidate.openUrl : undefined;
+  return {...service, command:service.command.trim() ? service.command : candidate.command,
+    port, openUrl:service.openUrl?.trim() ? service.openUrl : address};
+}
+
+export function mergeDetectedServices(existing: ProjectService[], candidates: CommandCandidate[], newId: ()=>string) {
+  const normalize=(cwd:string)=>cwd.replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
+  const seen=new Set<string>();
+  const services=[...existing], recommended:ProjectService[]=[];
+  for(const candidate of candidates){
+    const kind=candidateKind(candidate), key=`${normalize(candidate.cwd)}|${kind}`;
+    if(seen.has(key))continue;
+    seen.add(key);
+    const index=services.findIndex(s=>normalize(s.cwd)===normalize(candidate.cwd)&&s.kind===kind);
+    const detected=kind==='desktop'?{...candidate,port:undefined,openUrl:undefined}:candidate;
+    const service=index>=0?fillDetectedService(services[index],detected):{
+      id:newId(),name:serviceKindLabels[kind],kind,cwd:candidate.cwd,command:candidate.command,
+      port:detected.port??undefined,openUrl:detected.openUrl,readiness:'auto' as const,startupTimeoutSecs:kind==='desktop'?600:60,
+    };
+    if(index>=0)services[index]=service;else services.push(service);
+    recommended.push(service);
+  }
+  return {services,recommended};
+}
+
+export function serviceOpenIssue(service: ProjectService, status?: string): 'address' | 'not-ready' | undefined {
+  if (!isDesktopService(service) && !service.openUrl?.trim() && !service.port) return 'address';
+  return status !== 'running' ? 'not-ready' : undefined;
 }
 export function validateLaunchPlans(plans: LaunchPlan[], services: ProjectService[], defaultId?: string): string {
   const ids = new Set<string>();
@@ -80,6 +117,10 @@ export function automaticOpenService(plan: LaunchPlan, services: ProjectService[
   return members.find(s=>isDesktopService(s))?.id
     ?? members.find(s=>s.kind==='frontend')?.id
     ?? members.find(s=>s.kind!=='backend' && (s.openUrl || s.port))?.id;
+}
+export function resolvedOpenService(plan: LaunchPlan, services: ProjectService[]): string | undefined {
+  return plan.openServiceId && plan.serviceIds.includes(plan.openServiceId) && services.some(s=>s.id===plan.openServiceId)
+    ? plan.openServiceId : automaticOpenService(plan,services);
 }
 
 export function commonProjectDirectory(services: ProjectService[]): string {

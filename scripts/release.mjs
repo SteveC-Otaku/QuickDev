@@ -29,10 +29,10 @@ if (!args.has("--skip-build")) {
 }
 
 /* chapter: collect artifacts + update manifests */
-const dist = path.join(root, "release", "dist");
+const dist = path.join(root, "release", "dist", `v${version}`);
 const oss = path.join(dist, "oss");
 const gh = path.join(dist, "github");
-fs.rmSync(dist, { recursive: true, force: true });
+// Preserve older releases and maintenance deliveries. Overwrite only this version's named outputs.
 fs.mkdirSync(path.join(oss, "downloads"), { recursive: true });
 fs.mkdirSync(gh, { recursive: true });
 

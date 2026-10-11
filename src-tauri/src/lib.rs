@@ -233,6 +233,13 @@ fn focus_service(id: String, service_id: String, manager: State<'_, DevManager>)
 }
 
 #[tauri::command]
+async fn open_service(id: String, service_id: String, app: tauri::AppHandle, manager: State<'_, DevManager>) -> Result<(), String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.open_service(&app, &id, &service_id))
+        .await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn stop_dev(
     id: String,
     plan_id: Option<String>,
@@ -257,8 +264,11 @@ async fn stop_all_devs(
 }
 
 #[tauri::command]
-fn list_dev_status(manager: State<'_, DevManager>) -> Result<Vec<DevStatusEntry>, String> {
-    Ok(manager.statuses())
+fn list_dev_status(app: tauri::AppHandle, manager: State<'_, DevManager>) -> Result<Vec<DevStatusEntry>, String> {
+    let statuses=manager.statuses();
+    // Deferred listener verification can change the runtime-only menu entry.
+    tray::refresh(&app);
+    Ok(statuses)
 }
 
 #[tauri::command]
@@ -318,6 +328,7 @@ pub fn run() {
             start_dev,
             start_service,
             focus_service,
+            open_service,
             stop_service,
             stop_dev,
             stop_all_devs,

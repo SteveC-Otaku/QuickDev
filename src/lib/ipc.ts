@@ -34,6 +34,7 @@ export const startDev = (id: string, planId?: string) => invoke<StartDevResult>(
 export const startService = (id: string, serviceId: string) => invoke<StartDevResult>("start_service", { id, serviceId });
 export const stopService = (id: string, serviceId: string) => invoke<void>("stop_service", { id, serviceId });
 export const focusService = (id: string, serviceId: string) => invoke<void>("focus_service", { id, serviceId });
+export const openServiceEntry = (id: string, serviceId: string) => invoke<void>("open_service", { id, serviceId });
 export const stopDev = (id: string, planId?: string) => invoke<void>("stop_dev", { id, planId });
 export const stopAllDevs = () => invoke<void>("stop_all_devs");
 export const listDevStatus = () => invoke<DevStatusEntry[]>("list_dev_status");

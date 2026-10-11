@@ -149,6 +149,7 @@
   <ProjectFormModal
     open={app.formOpen}
     editing={app.editingProject}
+    focusServiceId={app.editingServiceId}
     projectCount={app.projects.length}
     groups={app.settings.groups ?? []}
     onclose={() => (app.formOpen = false)}

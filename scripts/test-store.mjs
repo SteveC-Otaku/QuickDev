@@ -7,7 +7,7 @@ import ts from 'typescript';
 
 // Exercise the real rune store with controlled IPC, never the user's processes/config.
 const source = await readFile('src/lib/store.svelte.ts', 'utf8');
-const names = ['isTauri', 'listen', 'openUrl', 'bootstrap', 'exportConfig', 'getDevLogs', 'importConfig', 'loadSettings', 'killAndRestart', 'killProcess', 'listDevStatus', 'listPorts', 'listProjects', 'removeProject', 'startDev', 'startService', 'focusService', 'stopService', 'stopAllDevs', 'stopDev', 'updateSettings', 'upsertProject'];
+const names = ['isTauri', 'listen', 'openUrl', 'openServiceEntry', 'bootstrap', 'exportConfig', 'getDevLogs', 'importConfig', 'loadSettings', 'killAndRestart', 'killProcess', 'listDevStatus', 'listPorts', 'listProjects', 'removeProject', 'startDev', 'startService', 'focusService', 'stopService', 'stopAllDevs', 'stopDev', 'updateSettings', 'upsertProject'];
 const stripped = source.replace(/^import[\s\S]*?from\s+"[^"]+";\s*/gm, '');
 const prefix = names.map(name => `const ${name} = (...args) => globalThis.__qdTest.${name}(...args);`).join('\n');
 const helpers = (await readFile('src/lib/services.ts', 'utf8')).replace(/^import.*$/gm, '').replace(/export /g, '');
@@ -29,9 +29,24 @@ async function test(name, run) {
   finally { app.dispose(); }
 }
 try {
-  await test('桌面 App 打开只聚焦窗口而不打开浏览器', async (app, ipc) => {
+  await test('缺网页地址提供定位配置，运行中不绕过编辑保护',async (app,ipc)=>{
+    let browser=0;ipc.openUrl=async()=>browser++;ipc.openServiceEntry=async()=>{throw Error('网页前端尚未配置网页地址，请填写端口或网页地址');};
+    const missing={...project,services:[{id:'web',name:'网页前端',cwd:'D:/web',command:'npm run dev',kind:'frontend'}],serviceStatuses:[{id:'web',status:'running'}],status:'running'};
+    app.projects=[missing];await app.openService('one','web');
+    assert.equal(browser,0);assert.match(app.notice.text,/尚未配置网页地址/);assert.deepEqual(app.notice.configuration,{projectId:'one',serviceId:'web'});
+    await app.locateServiceConfiguration('one','web');assert.equal(app.formOpen,false);assert.equal(app.selectedProjectId,'one');assert.equal(app.selectedServiceId,'web');assert.match(app.notice.text,/先停止/);
+    app.projects=[{...missing,status:'stopped',serviceStatuses:[{id:'web',status:'stopped'}]}];await app.locateServiceConfiguration('one','web');
+    assert.equal(app.formOpen,true);assert.equal(app.editingServiceId,'web');assert.equal(app.editingProject.id,'one');
+  });
+  await test('未就绪给出等待提示，已就绪委托统一后端打开入口',async (app,ipc)=>{
+    const service={id:'web',name:'前端',cwd:'D:/web',command:'npm run dev',kind:'frontend',port:6123,openUrl:'http://127.0.0.2:6123/'};
+    app.projects=[{...project,services:[service],serviceStatuses:[{id:'web',status:'starting'}]}];let urls=[];ipc.openServiceEntry=async()=>{throw Error('前端尚未就绪，请查看日志或等待启动完成');};
+    await app.openService('one','web');assert.match(app.notice.text,/尚未就绪/);assert.equal(urls.length,0);
+    ipc.openServiceEntry=async (...args)=>urls.push(args);app.projects=[{...project,services:[service],serviceStatuses:[{id:'web',status:'running'}]}];await app.openService('one','web');assert.deepEqual(urls,[['one','web']]);
+  });
+  await test('桌面 App 委托统一入口，不直接打开浏览器', async (app, ipc) => {
     let focused = 0, browser = 0;
-    ipc.focusService = async (id, service) => { assert.equal(id, 'desktop'); assert.equal(service, 'default'); focused++; };
+    ipc.openServiceEntry = async (id, service) => { assert.equal(id, 'desktop'); assert.equal(service, 'default'); focused++; };
     ipc.openUrl = async () => { browser++; };
     const desktop = {id:'desktop',name:'App',cwd:'C:/app',command:'npm run tauri dev',port:1420,status:'running',serviceStatuses:[{id:'default',status:'running',readiness:'window'}]};
     app.projects = [desktop];
@@ -39,8 +54,16 @@ try {
     assert.equal(focused, 1); assert.equal(browser, 0);
     app.ports = [{port:1420,pid:1,process:'node.exe',command:'vite',projectId:'desktop',serviceId:'default'}];
     await app.handleOpenPort(1420); assert.equal(focused,2); assert.equal(browser,0);
-    ipc.focusService = async () => { throw Error('窗口尚未出现'); };
+    ipc.openServiceEntry = async () => { throw Error('窗口尚未出现'); };
     await app.handleOpen(desktop); assert.match(app.notice.text, /窗口尚未出现/);
+  });
+  await test('运行时地址可打开，后端迟到的无地址与浏览器失败均可见',async (app,ipc)=>{
+    const service={id:'web',name:'前端',cwd:'D:/web',command:'npm run dev',kind:'frontend'};
+    app.projects=[{...project,services:[service],serviceStatuses:[{id:'web',status:'starting'}]}];
+    let calls=0;ipc.openServiceEntry=async()=>calls++;await app.openService('one','web');assert.equal(calls,1);
+    ipc.openServiceEntry=async()=>{throw Error('前端尚未配置网页地址');};await app.openService('one','web');assert.match(app.notice.text,/尚未配置网页地址/);assert.deepEqual(app.notice.configuration,{projectId:'one',serviceId:'web'});
+    ipc.openServiceEntry=async()=>{throw Error('打开地址失败：测试浏览器拒绝');};await app.openService('one','web');assert.match(app.notice.text,/测试浏览器拒绝/);
+    assert.equal(app.projects[0].services[0].openUrl,undefined);
   });
   await test('并发端口刷新合并为一次请求', async (app, ipc) => {
     let calls = 0; const pending = deferred();
@@ -150,9 +173,9 @@ try {
   await test('按方案打开对应网页或 App，不混用首个服务入口',async (app,ipc)=>{
     const projectWithPlans={...project,services:[{id:'web',name:'官网',cwd:'D:/web',command:'pnpm dev',port:5173},{id:'app',name:'App',cwd:'D:/app',command:'npm run tauri dev',readiness:'window'}],launchPlans:[{id:'website',name:'官网',serviceIds:['web'],openServiceId:'web'},{id:'desktop',name:'App',serviceIds:['app'],openServiceId:'app'}],defaultPlanId:'website'};
     app.projects=[projectWithPlans];ipc.listProjects=async()=>[projectWithPlans];ipc.listDevStatus=async()=>[{id:'one',status:'running',services:[{id:'web',status:'running'},{id:'app',status:'running'}]}];ipc.startDev=async()=>({ok:true});
-    let opened=[],focused=[];ipc.openUrl=async url=>opened.push(url);ipc.focusService=async (...args)=>focused.push(args);
-    await app.handleStart('one','desktop');assert.deepEqual(focused,[['one','app']]);assert.equal(opened.length,0);
-    await app.handleStart('one','website');assert.deepEqual(opened,['http://localhost:5173']);assert.equal(focused.length,1);
+    let entries=[];ipc.openServiceEntry=async (...args)=>entries.push(args);
+    await app.handleStart('one','desktop');assert.deepEqual(entries,[['one','app']]);
+    await app.handleStart('one','website');assert.deepEqual(entries,[['one','app'],['one','web']]);
   });
   console.log(`${count} store checks passed`);
 } finally { delete globalThis.__qdTest; await rm(file, { force: true }); }

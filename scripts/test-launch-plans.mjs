@@ -3,7 +3,7 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 const source=await fs.readFile('src/lib/services.ts','utf8');
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext}}).outputText;
-const {generateLaunchPlans,validateLaunchPlans,validateServices,candidateKind,automaticOpenService,projectPathName,commonProjectDirectory}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+const {generateLaunchPlans,validateLaunchPlans,validateServices,candidateKind,automaticOpenService,resolvedOpenService,projectPathName,commonProjectDirectory,sameLaunchPlan,mergeDetectedServices}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 const services=[{id:'web',name:'官网前端',cwd:'D:/web',command:'pnpm dev',kind:'frontend'},{id:'api',name:'官网后端',cwd:'D:/api',command:'python manage.py runserver',kind:'backend'},{id:'app',name:'桌面端',cwd:'D:/app',command:'npm run tauri dev',kind:'desktop'}];
 const plans=generateLaunchPlans(services);
 assert.deepEqual(plans.map(p=>p.id),['website','app-1','all']);
@@ -37,3 +37,31 @@ assert.equal(commonProjectDirectory([{cwd:'D:/Projects/site/web'},{cwd:'D:/Proje
 assert.equal(commonProjectDirectory([{cwd:'D:/one/shared'},{cwd:'D:/two/shared'}]),'D:/one/shared');
 assert.equal(commonProjectDirectory([{cwd:'D:/site/web'}]),'D:/site/web');
 console.log('PASS separate recognition root and service directories');
+
+assert.deepEqual(generateLaunchPlans(services.slice(0,2)).map(p=>p.id),['website']);
+assert.equal(sameLaunchPlan(plans[0],{...plans[0],id:'renamed',name:'其他名称'}),true);
+assert.equal(sameLaunchPlan(plans[0],{...plans[0],serviceIds:['web','api']}),false);
+assert.equal(sameLaunchPlan(plans[0],{...plans[0],openServiceId:'api'}),false);
+assert.equal(sameLaunchPlan(plans[0],{...plans[0],startMode:'parallel'}),false);
+const candidate={cwd:'d:\\web\\',command:'npm run dev',kind:'frontend',port:6123,openUrl:'http://127.0.0.2:6123/',label:'Vite',reason:'配置'};
+const filled=mergeDetectedServices([{...services[0],command:'custom dev'}],[candidate],()=>{throw Error('must reuse existing service');});
+assert.equal(filled.services[0].port,6123);assert.equal(filled.services[0].openUrl,candidate.openUrl);assert.equal(filled.services[0].command,'custom dev');
+assert.deepEqual(mergeDetectedServices(filled.services,[candidate,candidate],()=>{throw Error('must remain idempotent');}),filled);
+const manual={...services[0],port:9001,openUrl:'http://localhost:9001/admin',command:'manual launch'};
+assert.deepEqual(mergeDetectedServices([manual],[candidate],()=>{throw Error('must reuse');}).services,[manual]);
+assert.equal(mergeDetectedServices([{...manual,openUrl:undefined}],[candidate],()=>{throw Error('must reuse');}).services[0].openUrl,undefined,'detected URL must not contradict manual port');
+assert.equal(mergeDetectedServices([],[candidate,candidate],()=> 'new').services.length,1);
+console.log('PASS semantic plan deduplication, literal address merging, manual overrides and repeated-scan idempotence');
+
+const mixed={id:'mixed',name:'网页和 App',serviceIds:['web','app','api'],startMode:'parallel',openServiceId:'web'};
+for(const target of ['web','app','api']) {
+  let saved={...mixed,openServiceId:target};
+  for(let pass=0;pass<3;pass++) {
+    saved=JSON.parse(JSON.stringify({...saved,openServiceId:resolvedOpenService(saved,services)}));
+    assert.equal(saved.openServiceId,target,'valid explicit target survives repeated saves');
+  }
+}
+assert.equal(resolvedOpenService({...mixed,openServiceId:'deleted'},services),'app');
+assert.equal(resolvedOpenService({...mixed,serviceIds:['web','api'],openServiceId:'app'},services),'web');
+assert.equal(resolvedOpenService({...mixed,serviceIds:['missing','web'],openServiceId:'missing'},services),'web');
+console.log('PASS mixed web/desktop explicit entry survives repeated serialization; invalid entry falls back');
