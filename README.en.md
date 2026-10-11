@@ -15,18 +15,18 @@
 
 ---
 
-Source version **v1.0.1** (2026-10-11 bugfix). Public downloads remain v1.0.0 until a 1.0.1 GitHub Release is published. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
+Current version **v1.0.1** (2026-10-11 bugfix), published on GitHub Releases. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
 
 Site: [quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
 ## Download
 
-Get **v1.0.0** from the [website](https://quickdev.steve-lab.cc/#download) or [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest):
+Get **v1.0.1** from [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.1). This release has not yet been deployed to the website:
 
 | Installer | For |
 | --- | --- |
-| [`QuickDev_1.0.0_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.0/QuickDev_1.0.0_x64-setup.exe) | Most PCs (~3.3 MB) |
-| [`QuickDev_1.0.0_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.0/QuickDev_1.0.0_arm64-setup.exe) | ARM devices — Snapdragon, Surface Pro X (~3.0 MB) |
+| [`QuickDev_1.0.1_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_x64-setup.exe) | Most PCs (~3.3 MB) |
+| [`QuickDev_1.0.1_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_arm64-setup.exe) | ARM devices — Snapdragon, Surface Pro X (~3.0 MB) |
 
 Not sure which one? Settings → System → About. If **System type** says ARM, use ARM64.
 

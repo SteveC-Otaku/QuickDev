@@ -15,18 +15,18 @@
 
 ---
 
-源码版本 **v1.0.1**（2026-10-11 修复版）。公开下载目前仍为 v1.0.0，1.0.1 尚未创建 GitHub Release。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
+当前版本 **v1.0.1**（2026-10-11 修复版），已发布到 GitHub Release。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
 
 官网：[quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
 ## 下载
 
-到 [官网](https://quickdev.steve-lab.cc/#download) 或 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/latest) 下载 **v1.0.0**：
+到 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.1) 下载 **v1.0.1**（本次发布尚未同步官网）：
 
 | 安装包 | 适用 |
 | --- | --- |
-| [`QuickDev_1.0.0_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.0/QuickDev_1.0.0_x64-setup.exe) | 大多数电脑（约 3.3 MB） |
-| [`QuickDev_1.0.0_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.0/QuickDev_1.0.0_arm64-setup.exe) | 骁龙 / Surface 等 ARM 设备（约 3.0 MB） |
+| [`QuickDev_1.0.1_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_x64-setup.exe) | 大多数电脑（约 3.3 MB） |
+| [`QuickDev_1.0.1_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_arm64-setup.exe) | 骁龙 / Surface 等 ARM 设备（约 3.0 MB） |
 
 不确定选哪个：设置 → 系统 → 系统信息，「系统类型」写着 ARM 就选 ARM64。
 
