@@ -29,5 +29,10 @@ try {
   assert.equal(read(path.join(out,'github/latest.json')).version,version);
   assert.ok(read(path.join(out,'github/latest.json')).platforms['windows-x86_64'].url.includes('/v'+version+'/'));
   assert.ok(fs.readFileSync(path.join(out,'oss/index.html'),'utf8').includes(version));
+  const githubManifest=fs.readFileSync(path.join(out,'github/latest.json'),'utf8');
+  const githubInstaller=fs.readFileSync(path.join(out,'github',`QuickDev_${version}_x64-setup.exe`));
+  execFileSync(process.execPath,[path.join(root,'scripts/release.mjs'),'--website-only'],{cwd:root,stdio:'pipe'});
+  assert.equal(fs.readFileSync(path.join(out,'github/latest.json'),'utf8'),githubManifest);
+  assert.deepEqual(fs.readFileSync(path.join(out,'github',`QuickDev_${version}_x64-setup.exe`)),githubInstaller);
   console.log('PASS version consistency; isolated dual-architecture packaging; repeat release preserves previous deliveries (fixture artifacts only)');
 } finally {fs.rmSync(root,{recursive:true,force:true});}

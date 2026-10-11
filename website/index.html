@@ -8,6 +8,10 @@
 <meta property="og:title" content="即栈 Quick Dev — 谁占了 :3000？" />
 <meta property="og:description" content="Windows 多项目本地开发托盘：自动识别、方案启动、端口冲突一键定位。免费开源。" />
 <meta property="og:type" content="website" />
+<meta property="og:url" content="https://quickdev.steve-lab.cc/" />
+<meta property="og:image" content="https://quickdev.steve-lab.cc/img/release-__VERSION__.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
 <link rel="icon" href="img/logo.png" />
 <style>
   :root {
@@ -581,6 +585,11 @@
         </div>
       </div>
 
+      <figure style="margin:32px 0 0;border:1px solid var(--line)">
+        <img src="img/release-__VERSION__.png" width="1200" height="630" alt="Quick Dev v__VERSION__ 更新：嵌套目录识别、重扫保留配置、统一打开入口" loading="lazy" />
+        <figcaption style="padding:12px 16px;color:var(--mute);font-size:13px">v__VERSION__ 更新亮点 · 识别后生成方案，重扫保留调整，按方案打开对应入口。</figcaption>
+      </figure>
+
       <div class="live">
         <aside class="panel">
           <div class="panel-h"><b>LISTEN</b><span>now · localhost</span></div>
@@ -652,12 +661,12 @@
           <li class="tl-step">
             <div class="tl-node">02</div>
             <strong>一键分析</strong>
-            <p>读 package.json / 锁文件 / Tauri，标好类型与命令</p>
+            <p>扫描根目录与嵌套服务目录，标好前端、后端与 App</p>
           </li>
           <li class="tl-step">
             <div class="tl-node">03</div>
             <strong>确认方案</strong>
-            <p>官网 = 前端+后端；App 默认真身，可勾共享后端</p>
+            <p>按识别结果生成组合，在方案中直接调整每条命令</p>
           </li>
           <li class="tl-step">
             <div class="tl-node">04</div>
@@ -742,12 +751,12 @@ pnpm? npm? yarn?
           <article class="card">
             <div class="kicker">01 · AUTO DETECT</div>
             <h3>选目录，命令它来认</h3>
-            <p>识别 Vite / Next / Nuxt / Astro、Nest 等后端、Electron / Tauri、Django；未知入口标「待确认」，不装懂。</p>
+            <p>识别嵌套前后端、workspace、Electron / Tauri 与 Django。Vite 静态地址也能读取；未知入口标「待确认」。</p>
           </article>
           <article class="card">
             <div class="kicker">02 · LAUNCH PLANS</div>
             <h3>官网 / App 两套方案</h3>
-            <p>推荐入口一键生成方案。同时或按序启动；共享后端引用不重复起；托盘也能选方案。</p>
+            <p>识别后自动生成推荐方案；重扫保留手动命令、端口与自定义组合。同一服务共用引用，托盘也能选方案。</p>
           </article>
           <article class="card">
             <div class="kicker">03 · NO CMD JUNK</div>
@@ -764,8 +773,8 @@ pnpm? npm? yarn?
         <div class="showcase" id="showcase">
           <div class="showcase-head">
             <div>
-              <div class="kicker">REAL SCREENSHOTS · 最新版本</div>
-              <h3>不是概念图，是现在就能装的样子</h3>
+              <div class="kicker">SCREENSHOTS · v1.0.0 界面参考</div>
+              <h3>看看端口、项目和启动方案如何集中管理</h3>
             </div>
             <div class="tabs" role="tablist" aria-label="截图分类">
               <button class="tab" role="tab" aria-selected="true" data-cat="ports">端口</button>
@@ -797,7 +806,7 @@ pnpm? npm? yarn?
       <div class="changelog-head">
         <span class="kicker">CHANGELOG</span>
         <h2>更新日志</h2>
-        <p>软件内「设置 → 关于与更新」能看到同一份记录；有新版本时会弹窗提示，点一下就能更新。</p>
+        <p>v__VERSION__ 已发布。软件内「设置 → 关于与更新」也能查看更新说明、检查并安装新版。</p>
       </div>
       <ol class="releases">
 <!--CHANGELOG-->
@@ -875,7 +884,7 @@ pnpm? npm? yarn?
       var SHOTS = [
         ["ports", "ports", "端口总览", "所有监听端口一屏看清：哪个项目、哪个进程、哪个命令。"],
         ["ports", "ports-source", "追溯来源", "展开 :3000 就能看到进程链：谁拉起了它、在哪个目录、用什么命令。"],
-        ["ports", "ports-kill", "结束占用", "确认后释放端口，提示写清后果，不会误杀别的项目。"],
+        ["ports", "ports-kill", "结束占用", "查看进程来源与结束提示，确认后释放对应端口。"],
         ["ports", "ports-jump", "冲突跳转", "从项目页点「查看占用详情」，直接定位到对应端口并展开来源。"],
         ["ports", "ports-loading", "首次扫描", "启动瞬间先给骨架屏，扫描完成自动填充。"],
         ["ports", "ports-error", "扫描失败", "端口扫描出错时只影响这一栏，项目启停和日志照常可用。"],
@@ -884,7 +893,7 @@ pnpm? npm? yarn?
         ["projects", "projects-conflict", "端口被占", "启动前发现 :3000 被占，一键「结束并启动」或先看是谁占的。"],
         ["projects", "projects-toast", "错误提示", "启动失败给出可操作的原因，比如 pnpm 不在 PATH 中。"],
         ["add", "add-detecting", "正在识别", "选好目录后自动扫描 package.json、Cargo.toml 等入口。"],
-        ["add", "add-detected", "识别结果", "自动分出前端 / 后端 / App，生成「官网」「桌面 App」「全部」三个方案。"],
+        ["add", "add-detected", "识别结果", "按实际入口区分前端 / 后端 / App，并生成适合当前项目的方案。"],
         ["add", "add-app-plan", "切换方案", "同一个项目不同启动组合，切换即可看到对应命令。"],
         ["add", "add-params", "服务参数", "执行目录、端口、环境变量都能按服务单独调整。"],
         ["more", "settings", "设置", "关窗留托盘、开机自启、托盘动画、日志落盘、刷新间隔，改完自动保存。"],

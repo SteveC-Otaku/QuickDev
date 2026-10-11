@@ -1,4 +1,4 @@
-// Usage: npm run release [-- --skip-build] [-- --upload]
+// Usage: npm run release [-- --skip-build] [-- --upload]; npm run build:website
 // Env:   QUICKDEV_OSS_BASE   public URL of the site root (default: https://quickdev.steve-lab.cc)
 //        QUICKDEV_OSS_TARGET ossutil destination, e.g. oss://quickdev
 import { execSync } from "node:child_process";
@@ -8,6 +8,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = new Set(process.argv.slice(2));
+const websiteOnly = args.has("--website-only");
 const readJson = (p) => JSON.parse(fs.readFileSync(path.join(root, p), "utf8"));
 
 const version = readJson("src-tauri/tauri.conf.json").version;
@@ -23,7 +24,7 @@ const targets = [
 ];
 
 /* chapter: build installers */
-if (!args.has("--skip-build")) {
+if (!args.has("--skip-build") && !websiteOnly) {
   const env = { ...process.env, TAURI_SIGNING_PRIVATE_KEY: fs.readFileSync(keyPath, "utf8"), TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
   for (const t of targets) execSync(`npx tauri build --target ${t.triple}`, { cwd: root, stdio: "inherit", env });
 }
@@ -44,7 +45,7 @@ for (const t of targets) {
   t.sig = fs.readFileSync(path.join(dir, `${exe}.sig`), "utf8").trim();
   t.size = `${(fs.statSync(path.join(dir, exe)).size / 1048576).toFixed(1)} MB`;
   fs.copyFileSync(path.join(dir, exe), path.join(oss, "downloads", t.name));
-  fs.copyFileSync(path.join(dir, exe), path.join(gh, t.name));
+  if (!websiteOnly) fs.copyFileSync(path.join(dir, exe), path.join(gh, t.name));
 }
 
 const manifest = (base) => JSON.stringify({
@@ -53,7 +54,7 @@ const manifest = (base) => JSON.stringify({
   pub_date: new Date().toISOString(),
   platforms: Object.fromEntries(targets.map((t) => [t.platform, { signature: t.sig, url: `${base}/${t.name}` }])),
 }, null, 2);
-fs.writeFileSync(path.join(gh, "latest.json"), manifest(ghBase));
+if (!websiteOnly) fs.writeFileSync(path.join(gh, "latest.json"), manifest(ghBase));
 fs.writeFileSync(path.join(oss, "latest.json"), manifest(`${ossBase}/downloads`));
 fs.copyFileSync(path.join(root, "release", "changelog.json"), path.join(oss, "changelog.json"));
 
@@ -79,7 +80,9 @@ for (const f of fs.readdirSync(imgSrc, { recursive: true })) {
   fs.copyFileSync(from, to);
 }
 
-console.log(`[release] v${version} → ${path.relative(root, oss)}（上传 OSS）与 ${path.relative(root, gh)}（GitHub Release）`);
+console.log(websiteOnly
+  ? `[website] v${version} → ${path.relative(root, oss)}（本地官网部署文件；未上传）`
+  : `[release] v${version} → ${path.relative(root, oss)}（上传 OSS）与 ${path.relative(root, gh)}（GitHub Release）`);
 for (const t of targets) console.log(`  ${t.name}  ${t.size}`);
 
 /* chapter: upload to OSS (manifest last, so clients never see a version whose installer is missing) */

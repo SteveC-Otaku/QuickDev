@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:website": "node scripts/release.mjs --website-only",
     "preview": "vite preview",
     "test:store": "node scripts/test-store.mjs",
     "ui:audit": "vite --config scripts/ui-audit.config.mjs --open /scripts/ui-audit.html",
