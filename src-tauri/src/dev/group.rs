@@ -1278,6 +1278,15 @@ mod tests {
         assert!(f.manager.has_error());
         f.manager.stop(f.app.handle(), &f.project.id).unwrap();
         assert_eq!(f.manager.running_count(), 0);
+        // Job termination is synchronous for the request, but Windows can
+        // finish closing a killed child's listening socket asynchronously.
+        let address = ("127.0.0.1", f.project.services[0].port.unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if std::net::TcpListener::bind(address).is_ok() { break; }
+            assert!(Instant::now() < deadline, "Stopped API port was not released");
+            thread::sleep(Duration::from_millis(25));
+        }
         let result = f.manager.start(f.app.handle(), &f.project);
         assert!(!result.ok);
         assert_eq!(f.manager.running_count(), 0);
@@ -1286,7 +1295,8 @@ mod tests {
                 .logs(&f.project.id, Some("bad"))
                 .iter()
                 .any(|line| line.contains("python") || line.starts_with('['))
-                || f.manager.statuses()[0].services[1].message.is_some()
+                || f.manager.statuses()[0].services.iter().find(|s| s.id == "bad").unwrap().message.is_some(),
+            "Missing failing service feedback: {:?}; {:?}", result, f.manager.statuses()
         );
     }
 
