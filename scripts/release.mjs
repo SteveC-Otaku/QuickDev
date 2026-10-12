@@ -49,7 +49,10 @@ for (const t of targets) {
   t.sig = fs.readFileSync(path.join(dir, `${exe}.sig`), "utf8").trim();
   t.size = `${(fs.statSync(path.join(dir, exe)).size / 1048576).toFixed(1)} MB`;
   fs.copyFileSync(path.join(dir, exe), path.join(oss, "downloads", t.name));
-  if (!websiteOnly) fs.copyFileSync(path.join(dir, exe), path.join(gh, t.name));
+  if (!websiteOnly) {
+    fs.copyFileSync(path.join(dir, exe), path.join(gh, t.name));
+    fs.copyFileSync(path.join(dir, `${exe}.sig`), path.join(gh, `${t.name}.sig`));
+  }
 }
 
 const manifest = (base) => JSON.stringify({

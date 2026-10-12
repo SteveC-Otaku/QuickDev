@@ -415,6 +415,7 @@ fn spawn_managed_process(
         use std::os::windows::process::CommandExt;
         // Attach to the Job before any project code may spawn descendants.
         command.creation_flags(0x0800_0000 | 0x0000_0004);
+        crate::process::python_reload::configure(&mut command)?;
     }
     let mut child = command.spawn()?;
     if let Err(e) = job.attach_and_resume(&child) {

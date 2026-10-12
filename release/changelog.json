@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.2",
+    "date": "2026-10-12",
+    "title": "Windows Uvicorn 热重载兼容",
+    "notes": [
+      "Quick Dev 启动的 Windows Uvicorn 标准 --reload 入口自动隔离隐藏控制台，减少一体脚本中 Ctrl+C 误停 npm 的问题",
+      "保留虚拟环境、原 PYTHONPATH 与 sitecustomize、实时日志及 Job Object 归属；兼容处理不改写项目或全局 Python 配置",
+      "标准模块入口与 uvicorn.exe 已通过隔离回归；程序内部 uvicorn.run、禁用 site 的解释器和自定义热重载器不在自动保护范围内"
+    ]
+  },
+  {
     "version": "1.0.1",
     "date": "2026-10-11",
     "title": "项目识别与网页入口修复",

@@ -13,7 +13,7 @@
 - _tasks/2026-10-11-目录整理/：迁移、删除清单与历史构建记录。
 - website/：官网源模板；发布脚本生成官网，不直接修改已部署站点。
 - release/changelog.json：应用更新日志数据。
-- release/dist/v<version>/：忽略的正式逐版本交付（github、oss）；当前保留 v0.2.0、v1.0.0、v1.0.1。正式文件以 GitHub Release 的大小和 SHA-256 为准；临时测试包、诊断程序及重复安装包已清理，构建记录归档到 _tasks。
+- release/dist/v<version>/：忽略的正式逐版本交付（github、oss）；当前保留 v0.2.0、v1.0.0、v1.0.1、v1.0.2。正式文件以 GitHub Release 的大小和 SHA-256 为准；临时测试包、诊断程序及重复安装包已清理，构建记录归档到 _tasks。
 
 入口文档仍保留根目录 README、PRD、FEATURES、TECH，避免破坏既有链接。真实配置在 LOCALAPPDATA 下，项目中不保存 projects.json、settings.json、密钥或日志。
 

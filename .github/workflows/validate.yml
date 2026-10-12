@@ -23,4 +23,6 @@ jobs:
         working-directory: src-tauri
       - run: cargo test --locked --lib --manifest-path docs/maintenance/2026-10-11-fixes/detect-tests/Cargo.toml --target-dir src-tauri/target/maintenance-detect-tests
       - run: powershell -ExecutionPolicy Bypass -File scripts/test-native.ps1
+      - run: python -m pip install uvicorn==0.52.1
+      - run: python scripts/test-python-reload.py --python (Get-Command python).Source --output _tasks/ci-reload
 

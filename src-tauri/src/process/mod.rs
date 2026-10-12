@@ -1,6 +1,8 @@
 pub mod job;
 pub mod drain;
 pub mod window;
+#[cfg(windows)]
+pub mod python_reload;
 
 // Only external, explicitly confirmed processes use the taskkill fallback.
 pub fn kill_process_tree(pid: u32) -> Result<(), String> {

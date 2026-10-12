@@ -15,18 +15,19 @@
 
 ---
 
-Current version **v1.0.1** (2026-10-11 bugfix), published on GitHub Releases. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
+Current version **v1.0.2** (2026-10-12 bugfix), published on GitHub Releases. Free and open source — **no project limit**. No accounts, no cloud sync. Everything stays on your machine; the app only goes online to check for updates.
 
 Site: [quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
+
 ## Download
 
-Get **v1.0.1** from [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.1). This release has not yet been deployed to the website:
+Get **v1.0.2** from [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.2). This release has not yet been deployed to the website:
 
 | Installer | For |
 | --- | --- |
-| [`QuickDev_1.0.1_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_x64-setup.exe) | Most PCs (~3.3 MB) |
-| [`QuickDev_1.0.1_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_arm64-setup.exe) | ARM devices — Snapdragon, Surface Pro X (~3.0 MB) |
+| [`QuickDev_1.0.2_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.2/QuickDev_1.0.2_x64-setup.exe) | Most PCs (~3.3 MB) |
+| [`QuickDev_1.0.2_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.2/QuickDev_1.0.2_arm64-setup.exe) | ARM devices — Snapdragon, Surface Pro X (~3.0 MB) |
 
 Not sure which one? Settings → System → About. If **System type** says ARM, use ARM64.
 
@@ -35,14 +36,14 @@ After install, open **Settings → About & updates**: the app checks for updates
 > Windows may warn about an unknown publisher (unsigned build). Choose “Run anyway”.
 
 
-## Changes in v1.0.1
+## Changes in v1.0.2
 
-- Deduplicates equivalent recommended plans while preserving manual configuration and custom plans on rescan. Existing duplicates require explicit removal and save.
-- Finds nested frontend/backend and workspace services; reads literal Vite addresses with bounded scanning.
-- Verifies runtime listener ownership without rewriting saved configuration; shares opening behavior between the main window and tray and preserves the selected target.
-- Unknown ports still use the 500ms process-alive heuristic. Desktop, tray and browser click flows have not been manually verified.
+- Automatically isolates standard Windows Uvicorn reload entry points in a hidden console, preventing reload signals from interrupting npm in common combined scripts.
+- Preserves virtual environments, live logs and managed process ownership. Stopping a plan still reclaims the backend and reload workers; protection applies to services started by the new version.
+- Leaves project files and global Python configuration untouched. Programmatic `uvicorn.run()`, disabled site/PYTHONPATH and custom reloaders are outside automatic protection.
+- Passed all 53 native tests, frontend checks and business regressions, plus nine real reloads across three legacy script scenarios. ARM64 is build/file verified only, without ARM-device runtime acceptance.
 
-See [release notes](docs/releases/1.0.1.md) and [layout and verification](docs/README.md) (Chinese).
+See [release notes](docs/releases/1.0.2.md) and [layout and verification](docs/README.md) (Chinese).
 
 ## Features
 
@@ -98,7 +99,7 @@ release/dist/v<version>/oss/          # website + installers for OSS
 release/dist/v<version>/github/       # attach to the GitHub Release
 ```
 
-Windows code signing can be skipped (`scripts/sign-windows.ps1`), but the dual-architecture release requires an updater signing key and both signed installer artifacts. Only an unsigned x64 bugfix installer has been verified; no ARM64 installer or update manifest has been generated.
+Windows publisher certificate signing can be skipped (`scripts/sign-windows.ps1`). v1.0.2 includes x64 / ARM64 installers with verified updater signatures and a dual-architecture manifest. ARM64 has not been runtime-tested on an ARM device.
 
 Validation: `npm run check`, `npm test`. Native and isolated detection test instructions are in the [maintenance guide](docs/maintenance/2026-10-11-fixes/README.md).
 

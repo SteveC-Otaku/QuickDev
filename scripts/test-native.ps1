@@ -15,8 +15,6 @@ try {
     if (!$mt) { throw 'Windows SDK mt.exe is required to embed Common-Controls v6 in the test copy' }
     & $mt.FullName -nologo -manifest (Join-Path $repo 'docs/maintenance/2026-10-11-fixes/tools/native-tests.manifest') "-outputresource:$copy;#1"
     if ($LASTEXITCODE -ne 0) { throw 'Test-copy manifest embedding failed' }
-    foreach ($filter in @('dev::address::tests','dev::group::tests','tray::tests','config::detect')) {
-        & $copy $filter --nocapture --test-threads=1
-        if ($LASTEXITCODE -ne 0) { throw "Native test failure: $filter" }
-    }
+    & $copy --nocapture --test-threads=1
+    if ($LASTEXITCODE -ne 0) { throw 'Native test failure' }
 } finally { Pop-Location }

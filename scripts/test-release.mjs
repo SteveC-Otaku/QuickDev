@@ -27,6 +27,7 @@ try {
   assert.equal(fs.readFileSync(sentinel,'utf8'),'keep');
   const out=path.join(root,'release/dist','v'+version);
   assert.equal(read(path.join(out,'github/latest.json')).version,version);
+  for(const arch of ['x64','arm64'])assert.equal(fs.readFileSync(path.join(out,'github',`QuickDev_${version}_${arch}-setup.exe.sig`),'utf8'),'fixture-signature');
   assert.ok(read(path.join(out,'github/latest.json')).platforms['windows-x86_64'].url.includes('/v'+version+'/'));
   assert.ok(fs.readFileSync(path.join(out,'oss/index.html'),'utf8').includes(version));
   const githubManifest=fs.readFileSync(path.join(out,'github/latest.json'),'utf8');

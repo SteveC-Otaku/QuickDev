@@ -1,6 +1,6 @@
 {
   "name": "quick-dev",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "即栈 Quick Dev — Windows 多项目 dev 管理托盘工具",
   "type": "module",
   "scripts": {

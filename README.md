@@ -15,18 +15,19 @@
 
 ---
 
-当前版本 **v1.0.1**（2026-10-11 修复版），已发布到 GitHub Release。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
+当前版本 **v1.0.2**（2026-10-12 修复版），已发布到 GitHub Release。完全免费开源，**不限项目数量**。不收集账号、不联网同步——数据只在你本机，仅检查更新时联网。
 
 官网：[quickdev.steve-lab.cc](https://quickdev.steve-lab.cc/)
 
+
 ## 下载
 
-到 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.1) 下载 **v1.0.1**（本次发布尚未同步官网）：
+到 [GitHub Releases](https://github.com/SteveC-Otaku/QuickDev/releases/tag/v1.0.2) 下载 **v1.0.2**（本次发布尚未同步官网）：
 
 | 安装包 | 适用 |
 | --- | --- |
-| [`QuickDev_1.0.1_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_x64-setup.exe) | 大多数电脑（约 3.3 MB） |
-| [`QuickDev_1.0.1_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.1/QuickDev_1.0.1_arm64-setup.exe) | 骁龙 / Surface 等 ARM 设备（约 3.0 MB） |
+| [`QuickDev_1.0.2_x64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.2/QuickDev_1.0.2_x64-setup.exe) | 大多数电脑（约 3.3 MB） |
+| [`QuickDev_1.0.2_arm64-setup.exe`](https://github.com/SteveC-Otaku/QuickDev/releases/download/v1.0.2/QuickDev_1.0.2_arm64-setup.exe) | 骁龙 / Surface 等 ARM 设备（约 3.0 MB） |
 
 不确定选哪个：设置 → 系统 → 系统信息，「系统类型」写着 ARM 就选 ARM64。
 
@@ -35,14 +36,14 @@
 > Windows 若提示「未知发布者」，属未代码签名，选择仍要运行即可。
 
 
-## v1.0.1 更新
+## v1.0.2 更新
 
-- 等价推荐方案去重，重扫保留手动配置和自定义方案；已有重复方案需主动移除并保存。
-- 识别嵌套前后端与 workspace，静态读取 Vite 地址；扫描有深度、目录数量和目录项预算。
-- 运行时地址须属于本次启动的进程；日志不会覆盖保存的地址。主窗口与托盘共用打开入口，保留指定目标并反馈失败。
-- 未知端口仍使用 500ms 进程存活判断；尚未进行桌面、托盘与系统浏览器点击验收。
+- 标准 Windows Uvicorn 热重载入口自动进入独立隐藏控制台，减少组合脚本中的 Ctrl+C 连带中断 npm；通常无需修改项目脚本。
+- 保留虚拟环境、实时日志与受管进程树，主动停止仍可回收后端和重载子进程；仅对新版启动的服务生效。
+- 不修改项目或全局 Python 配置；程序内部 `uvicorn.run()`、禁用 site/PYTHONPATH 和自定义重载器不在自动保护范围内。
+- 53 项原生回归、前端检查与业务回归通过；三组旧式脚本共 9 次真实热重载通过。ARM64 仅做构建和文件校验，未在 ARM 设备运行验收。
 
-详见 [更新公告](docs/releases/1.0.1.md) 与 [目录及验证入口](docs/README.md)。
+详见 [更新公告](docs/releases/1.0.2.md) 与 [目录及验证入口](docs/README.md)。
 
 ## 能干什么
 
@@ -98,7 +99,7 @@ release/dist/v<version>/oss/          # 上传 OSS 的官网 + 安装包
 release/dist/v<version>/github/       # 挂到 GitHub Release
 ```
 
-Windows 代码签名未配置时会跳过（见 `scripts/sign-windows.ps1`）；双架构发布仍要求独立的 updater 私钥、两个架构安装包及其签名。当前仅验证了未签名 x64 修复包，未生成 ARM64 或更新清单。
+Windows 发布者证书签名未配置时会跳过（见 `scripts/sign-windows.ps1`）；v1.0.2 已构建 x64 / ARM64 安装包，并验证更新器签名与双架构更新清单。ARM64 未进行设备运行验收。
 
 验证：`npm run check`、`npm test`。原生测试与隔离检测见 [维护目录](docs/maintenance/2026-10-11-fixes/README.md)。
 

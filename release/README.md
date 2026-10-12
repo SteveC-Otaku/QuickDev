@@ -7,6 +7,7 @@
 | v0.2.0 | dist/v0.2.0/github/ | 官方 x64 安装包 |
 | v1.0.0 | dist/v1.0.0/github/ | 官方 x64、ARM64 安装包与更新清单 |
 | v1.0.1 | dist/v1.0.1/github/ | 官方 x64、ARM64 安装包、签名、更新清单和 SHA-256 |
+| v1.0.2 | dist/v1.0.2/github/ | Windows 热重载兼容版 x64、ARM64 安装包、签名、更新清单和 SHA-256 |
 
 各版本的 `oss/` 是完整官网部署目录，包含部署时需要的正式安装包副本。它们不是测试交付。文件完整性以 GitHub Release 的大小与 SHA-256 校验值为准。
 
