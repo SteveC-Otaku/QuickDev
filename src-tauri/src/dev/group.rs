@@ -1074,6 +1074,16 @@ mod tests {
                 startup_timeout_secs: 15,
             }
         }
+        fn wait_for_ports_released(&self) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let blocked = self.project.services.iter().filter_map(|service| service.port)
+                    .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_err());
+                if blocked.is_none() { return; }
+                assert!(Instant::now() < deadline, "Stopped fixture port {:?} was not released", blocked);
+                thread::sleep(Duration::from_millis(25));
+            }
+        }
         fn failing(&self) -> ProjectService {
             let unused = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             ProjectService {
@@ -1175,7 +1185,9 @@ mod tests {
         assert!(f.manager.0.lock().unwrap().sessions.is_empty());
         assert!(f.manager.statuses()[0].active_plan_ids.is_empty());
         // An independently started backend is not owned by the later website plan.
-        assert!(f.manager.start_service(f.app.handle(),&f.project,"api").ok);
+        f.wait_for_ports_released();
+        let independent = f.manager.start_service(f.app.handle(),&f.project,"api");
+        assert!(independent.ok, "{:?}", independent);
         assert!(f.manager.start(f.app.handle(),&f.project).ok);
         f.manager.stop_plan(f.app.handle(),&f.project.id,"website").unwrap();
         assert!(f.manager.0.lock().unwrap().sessions.contains_key(&api_key));
@@ -1183,8 +1195,11 @@ mod tests {
         assert!(f.manager.0.lock().unwrap().sessions.is_empty());
         assert!(!f.manager.start_plan(f.app.handle(),&f.project,"missing").ok);
         // A stale independent claim cannot preserve a replacement generation.
-        assert!(f.manager.start_service(f.app.handle(),&f.project,"api").ok);
+        f.wait_for_ports_released();
+        let independent = f.manager.start_service(f.app.handle(),&f.project,"api");
+        assert!(independent.ok, "{:?}", independent);
         f.manager.stop_one(f.app.handle(),&api_key).unwrap();
+        f.wait_for_ports_released();
         assert!(f.manager.start(f.app.handle(),&f.project).ok);
         f.manager.stop_plan(f.app.handle(),&f.project.id,"website").unwrap();
         assert!(f.manager.0.lock().unwrap().sessions.is_empty());
@@ -1280,13 +1295,7 @@ mod tests {
         assert_eq!(f.manager.running_count(), 0);
         // Job termination is synchronous for the request, but Windows can
         // finish closing a killed child's listening socket asynchronously.
-        let address = ("127.0.0.1", f.project.services[0].port.unwrap());
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if std::net::TcpListener::bind(address).is_ok() { break; }
-            assert!(Instant::now() < deadline, "Stopped API port was not released");
-            thread::sleep(Duration::from_millis(25));
-        }
+        f.wait_for_ports_released();
         let result = f.manager.start(f.app.handle(), &f.project);
         assert!(!result.ok);
         assert_eq!(f.manager.running_count(), 0);
