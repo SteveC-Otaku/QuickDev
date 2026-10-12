@@ -7,7 +7,7 @@ try {
     $binary = Get-ChildItem 'target/debug/deps/quick_dev_lib-*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (!$binary) { throw 'Native test executable not found' }
     $version = (Get-Content (Join-Path $repo 'package.json') -Raw | ConvertFrom-Json).version
-    $destination = Join-Path $repo "release/dist/v$version/diagnostic"
+    $destination = Join-Path $repo "_tasks/$(Get-Date -Format 'yyyy-MM-dd')-native-tests-v$version"
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     $copy = Join-Path $destination 'native-tests.exe'
     Copy-Item -LiteralPath $binary.FullName -Destination $copy -Force
