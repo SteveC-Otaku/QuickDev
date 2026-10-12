@@ -23,7 +23,7 @@ original=temp/'original-pythonpath'
 original.mkdir(exist_ok=True)
 (original/'sitecustomize.py').write_text("import os\nos.environ['ORIGINAL_SITE_INTACT']='yes'\n",encoding='utf-8')
 guard=root/'src-tauri/src/process/python_reload'
-python=options.python
+python=str(Path(options.python).resolve(strict=True))
 environment=os.environ | {'QUICKDEV_RELOAD_GUARD':'1','PYTHONPATH':str(guard)+os.pathsep+str(original),'PYTHONUTF8':'1'}
 plain=subprocess.run([python,'-c',"import os; assert os.environ['ORIGINAL_SITE_INTACT']=='yes'; print('普通 Python 中文')"],env=environment,capture_output=True,encoding='utf-8',creationflags=subprocess.CREATE_NO_WINDOW,check=True)
 assert '普通 Python 中文' in plain.stdout

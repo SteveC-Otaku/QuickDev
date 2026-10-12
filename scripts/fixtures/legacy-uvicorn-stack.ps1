@@ -1,7 +1,12 @@
 param([string]$Python,[string]$Fixture,[int]$Port,[switch]$Cli)
 $ErrorActionPreference = 'Stop'
 $arguments = @('-m','uvicorn','app:app','--reload','--reload-dir',('"'+$Fixture+'"'),'--host','127.0.0.1','--port',"$Port",'--reload-delay','0.2')
-if ($Cli) { $Python = Join-Path (Split-Path $Python) 'uvicorn.exe'; $arguments = $arguments[2..($arguments.Count-1)] }
+if ($Cli) {
+  $scriptsDirectoryJson = & $Python -c "import sysconfig,json; print(json.dumps(sysconfig.get_path('scripts'), ensure_ascii=True))"
+  if ($LASTEXITCODE -ne 0) { throw 'Could not locate the Python scripts directory' }
+  $Python = Join-Path ($scriptsDirectoryJson | ConvertFrom-Json) 'uvicorn.exe'
+  $arguments = $arguments[2..($arguments.Count-1)]
+}
 # Deliberately reproduce the legacy shared-console project script.
 $backend = Start-Process -FilePath $Python -ArgumentList $arguments -WorkingDirectory $Fixture -NoNewWindow -PassThru
 $frontend = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/D','/C','npm run dev') -WorkingDirectory $Fixture -NoNewWindow -PassThru
