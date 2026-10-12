@@ -476,17 +476,19 @@ mod tests {
     }
 
     struct Fixture(PathBuf);
+    static NEXT_FIXTURE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     impl Fixture {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "qd-detect-{}-{}",
+                "qd-detect-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos()
+                    .as_nanos(),
+                NEXT_FIXTURE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
-            fs::create_dir_all(&path).unwrap();
+            fs::create_dir(&path).unwrap();
             Self(path)
         }
         fn package(&self, child: &str, raw: &str) {
